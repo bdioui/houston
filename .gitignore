@@ -14,6 +14,17 @@ dist-ssr
 
 .claude/
 
+# Python / Django
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+staticfiles/
+*.sqlite3
+
+# Secrets de déploiement
+.env
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

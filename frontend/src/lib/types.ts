@@ -48,6 +48,10 @@ export type PartnerLab = {
 
 export type Member = {
     id: number
+    // 0 quand il n'y a pas de rattachement. L'API Django rend null ; la
+    // conversion se fait dans api.ts, à la frontière. Garder 0 ici évite de
+    // propager la nullité dans dix fichiers de vues pour un gain nul : aucun
+    // identifiant ne vaut 0, donc les recherches par Map échouent pareil.
     partner_id: number
     lab_id: number
     first_name: string

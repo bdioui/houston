@@ -1,0 +1,82 @@
+name: houston
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: houston
+      POSTGRES_USER: houston
+      POSTGRES_PASSWORD: houston
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U houston -d houston"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      # 5433 côté hôte : 5432 est souvent déjà pris par un Postgres local.
+      # Depuis l'hôte : psql -h localhost -p 5433 -U houston houston
+      - "5433:5432"
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+
+  backend:
+    build: ./backend
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+    environment:
+      SECRET_KEY: dev-only-not-a-secret
+      DJANGO_DEBUG: "1"
+      DATABASE_URL: postgres://houston:houston@db:5432/houston
+      REDIS_URL: redis://redis:6379/0
+      ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      # Le navigateur est sur :5173, Django se croit sur :8000.
+      # Sans cette ligne, toute écriture est rejetée en dev.
+      CSRF_TRUSTED_ORIGINS: http://localhost:5173
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"   # confort : appeler l'API directement, hors du proxy Vite
+
+  worker:
+    build: ./backend
+    command: celery -A houston worker -l info
+    volumes:
+      - ./backend:/app
+    environment:
+      SECRET_KEY: dev-only-not-a-secret
+      DJANGO_DEBUG: "1"
+      DATABASE_URL: postgres://houston:houston@db:5432/houston
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    command: npm run dev -- --host
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules   # garde les modules de l'image, pas ceux de l'hôte
+    environment:
+      # Défaut : données fictives, pas d'écran de connexion — seul Supplier est
+      # porté sur Django, le reste n'existe pas encore côté backend.
+      # Pour travailler sur le vrai backend :
+      #   VITE_USE_MOCK=false docker compose up -d frontend
+      VITE_USE_MOCK: "${VITE_USE_MOCK:-true}"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

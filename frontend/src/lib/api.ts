@@ -1,4 +1,5 @@
 import { fetchTable, updateRecord, updateRecords, addRecord, addRecords, deleteRecord, replaceRecords } from '@/lib/grist'
+import * as http from '@/lib/client'
 import { SIFAC_OWNED_COLUMNS } from '@/lib/sifac/reconcile'
 import type { Reconciliation } from '@/lib/sifac/reconcile'
 import {
@@ -16,19 +17,19 @@ import {
     mockPublications, mockPublicationMembers,
 } from '@/lib/mock'
 import {
-    normalizeStatuses, normalizeCategories, normalizeMembers, normalizePartners,
-    normalizeAxes, normalizeActionCards, normalizeActionCardsFull,
+    normalizeStatuses, normalizeCategories,
+    normalizeActionCards, normalizeActionCardsFull,
     normalizeProjectCalls, normalizeProjects, normalizeFinancialAgreements,
     normalizePhds, normalizeMobilityGrants, normalizeKpis,
     normalizeBudgetCategories, normalizeBudgetDetails,
     normalizeToDoLists, normalizeToDoItems,
     normalizeMemberActionCards, normalizeProjectActionCards, normalizeAgreementActionCards,
-    normalizePartnerCardsFull, normalizeLabs, normalizePartnerLabs, normalizeLabCardsFull,
-    normalizeGroup, normalizeGroupMember, normalizeComments, normalizeCommentsFull, normalizeProjectMembers, normalizeAgreementMembers,
+    normalizePartnerCardsFull, normalizePartnerLabs, normalizeLabCardsFull,
+    normalizeGroupMember, normalizeComments, normalizeCommentsFull, normalizeProjectMembers, normalizeAgreementMembers,
     normalizeKpiEntries, normalizeProjectPartners, normalizeProjectMilestones,
     normalizeTimeEntry,
     normalizeFormations, normalizeProjectFormations, normalizeProjectAttachments,
-    normalizeProgram, normalizeExpanse, normalizeSuplier, normalizeSifacLine,
+    normalizeProgram, normalizeExpanse, normalizeSifacLine,
     normalizePublications, normalizePublicationMembers,
 } from '@/lib/normalize'
 import type {
@@ -109,17 +110,33 @@ export async function updateProgram(id: number, patch: Partial<Omit<Program, 'id
 }
 export async function getStatuses(): Promise<Status[]> { return USE_MOCK ? mockStatuses : normalizeStatuses(await fetchTable(T.status)) }
 export async function getCategories(): Promise<Category[]> { return USE_MOCK ? mockCategories : normalizeCategories(await fetchTable(T.category)) }
-export async function getMembers(): Promise<Member[]> { return USE_MOCK ? mockMembers : normalizeMembers(await fetchTable(T.member)) }
-export async function getGroups(): Promise<Group[]> { return USE_MOCK ? mockGroup : normalizeGroup(await fetchTable(T.group)) }
-export async function getGroupMembers(): Promise<GroupMember[]> { return USE_MOCK ? mockGroupMember : normalizeGroupMember(await fetchTable(T.group_member)) }
-export async function getPartners(): Promise<Partner[]> { return USE_MOCK ? mockPartners : normalizePartners(await fetchTable(T.partner)) }
-export async function getAxes(): Promise<Axis[]> { return USE_MOCK ? mockAxes : normalizeAxes(await fetchTable(T.axis)) }
-export async function getLabs(): Promise<Lab[]> { return USE_MOCK ? mockLabs : normalizeLabs(await fetchTable(T.lab)) }
-export async function getPartnerLabs(): Promise<PartnerLab[]> { return USE_MOCK ? mockPartnerLabs : normalizePartnerLabs(await fetchTable(T.partner_lab)) }
+// L'API rend null pour une référence absente, les vues attendent 0. La
+// conversion tient ici et nulle part ailleurs : c'est la seule frontière que
+// src/views/ ne traverse pas.
+type Nulled<T, K extends keyof T> = Omit<T, K> & { [P in K]: T[P] | null }
+
+export async function getMembers(): Promise<Member[]> {
+    if (USE_MOCK) return mockMembers
+    const rows = await http.get<Nulled<Member, 'partner_id' | 'lab_id'>[]>('/members/')
+    return rows.map(r => ({ ...r, partner_id: r.partner_id ?? 0, lab_id: r.lab_id ?? 0 }))
+}
+export async function getGroups(): Promise<Group[]> { return USE_MOCK ? mockGroup : http.get<Group[]>('/groups/') }
+export async function getGroupMembers(): Promise<GroupMember[]> { return USE_MOCK ? mockGroupMember : http.get<GroupMember[]>('/group-member/') }
+export async function getPartners(): Promise<Partner[]> {
+    if (USE_MOCK) return mockPartners
+    const rows = await http.get<Nulled<Partner, 'status_id'>[]>('/partners/')
+    return rows.map(r => ({ ...r, status_id: r.status_id ?? 0 }))
+}
+export async function getAxes(): Promise<Axis[]> { return USE_MOCK ? mockAxes : http.get<Axis[]>('/axis/') }
+export async function getLabs(): Promise<Lab[]> { return USE_MOCK ? mockLabs : http.get<Lab[]>('/labs/') }
+export async function getPartnerLabs(): Promise<PartnerLab[]> { return USE_MOCK ? mockPartnerLabs : http.get<PartnerLab[]>('/partner-lab/') }
 
 // Budget & expanses
 export async function getExpanses(): Promise<Expanse[]> { return USE_MOCK ? mockExpanses : normalizeExpanse(await fetchTable(T.expanse)) }
-export async function getSupliers(): Promise<Supplier[]> { return USE_MOCK ? mockSuppliers : normalizeSuplier(await fetchTable(T.supplier)) }
+// Première fonction portée sur Django. Elle ne passe plus par normalize.ts :
+// le sérialiseur DRF rend déjà des types JSON exacts, et l'organisation est
+// appliquée côté serveur — le client ne la voit ni ne l'envoie.
+export async function getSupliers(): Promise<Supplier[]> { return USE_MOCK ? mockSuppliers : http.get<Supplier[]>('/suppliers/') }
 export async function getSifacLines(): Promise<SifacLine[]> { return USE_MOCK ? mockSifacLines : normalizeSifacLine(await fetchTable(T.sifac_line)) }
 
 
@@ -252,8 +269,8 @@ export async function createSupplier(data: Omit<Supplier, 'id'>): Promise<Suppli
         mockSuppliers.push(supplier)
         return supplier
     }
-    const id = await addRecord(T.supplier, data)
-    return { id, ...data }
+    // Le serveur attribue l'id ; on rend sa réponse plutôt que de la reconstruire.
+    return http.post<Supplier>('/suppliers/', data)
 }
 
 export async function deleteSupplier(supplierId: number): Promise<void> {
@@ -262,8 +279,9 @@ export async function deleteSupplier(supplierId: number): Promise<void> {
         if (idx !== -1) {
             mockSuppliers.splice(idx, 1)
         }
+        return
     }
-    await deleteRecord(T.supplier, supplierId)
+    await http.del(`/suppliers/${supplierId}/`)
 }
 
 export async function updateSupplier(id: number, patch: Partial<Supplier>): Promise<void> {
@@ -272,7 +290,7 @@ export async function updateSupplier(id: number, patch: Partial<Supplier>): Prom
         if (i !== -1) mockSuppliers[i] = { ...mockSuppliers[i], ...patch }
         return
     }
-    await updateRecord(T.supplier, id, patch)
+    await http.patch<Supplier>(`/suppliers/${id}/`, patch)
 }
 
 // budgetCategories CRUD
@@ -1532,7 +1550,7 @@ export async function deleteProjectMilestone(id: number): Promise<void> {
 // --- Formations ---
 
 export async function getFormations(): Promise<Formation[]> {
-    return USE_MOCK ? mockFormations : normalizeFormations(await fetchTable(T.formation))
+    return USE_MOCK ? mockFormations : http.get<Formation[]>('/formations/')
 }
 
 export async function getProjectFormationLinks(projectId: number): Promise<ProjectFormation[]> {

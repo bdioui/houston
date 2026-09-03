@@ -1,0 +1,75 @@
+name: houston
+
+# Usage :
+#   docker compose -f compose.prod.yml run --rm backend python manage.py migrate
+#   docker compose -f compose.prod.yml up -d
+#
+# Les migrations sont un job explicite, pas un entrypoint : appliquées au
+# démarrage, plusieurs conteneurs qui remontent ensemble se les disputent.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    command: gunicorn houston.wsgi:application --bind 0.0.0.0:8000 --workers 3
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DJANGO_DEBUG: "0"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+      ALLOWED_HOSTS: ${DOMAIN}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    command: celery -A houston worker -l info
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DJANGO_DEBUG: "0"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    environment:
+      DOMAIN: ${DOMAIN}
+      BACKEND_URL: backend:8000
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data       # certificats TLS : à ne pas perdre
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

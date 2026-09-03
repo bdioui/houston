@@ -1,0 +1,22 @@
+{$DOMAIN:localhost} {
+	encode gzip zstd
+
+	# L'API et l'admin partent vers Django. Tout le reste est le SPA.
+	handle /api/* {
+		reverse_proxy {$BACKEND_URL:backend:8000}
+	}
+	handle /admin/* {
+		reverse_proxy {$BACKEND_URL:backend:8000}
+	}
+	handle /static/* {
+		reverse_proxy {$BACKEND_URL:backend:8000}
+	}
+
+	handle {
+		root * /srv/static
+		# try_files renvoie index.html sur toute route inconnue : c'est ce qui
+		# permet au routage React de fonctionner sur un rechargement de page.
+		try_files {path} /index.html
+		file_server
+	}
+}

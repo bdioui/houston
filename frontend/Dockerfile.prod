@@ -1,0 +1,14 @@
+# Produit les fichiers statiques du SPA. Aucun serveur Node en production :
+# le résultat est copié dans l'image Caddy, qui le sert directement.
+FROM node:22-alpine AS build
+
+WORKDIR /app
+# .npmrc porte legacy-peer-deps=true (conflit React 19 / gantt-task-react).
+COPY package*.json .npmrc ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM caddy:2-alpine
+COPY --from=build /app/dist /srv/static
+COPY Caddyfile /etc/caddy/Caddyfile

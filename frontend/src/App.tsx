@@ -16,6 +16,8 @@ import { getMembersFull, getProjects, getActionCardsFull, getAllProjectMembers, 
 import { UserContext } from '@/lib/userContext'
 import { Toaster } from 'sonner'
 import ExportModal from '@/components/ExportModal'
+import LoginScreen from '@/components/LoginScreen'
+import { fetchMe, logout as apiLogout, type AuthUser } from '@/lib/auth'
 
 const STORAGE_KEY = 'grist_current_member_id'
 
@@ -27,7 +29,26 @@ type AlertItem = {
   id: number,
 }
 
+// Porte d'entrée. AppShell n'est monté qu'une fois la session établie : ses
+// appels d'API partent tous avec IsAuthenticated satisfait, et son useEffect de
+// chargement — qui n'a pas de .catch() — ne peut plus donner un écran blanc.
 export default function App() {
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    fetchMe()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setChecking(false))
+  }, [])
+
+  if (checking) return null
+  if (!user) return <LoginScreen onSuccess={setUser} />
+  return <AppShell onLogout={() => apiLogout().then(() => setUser(null))} />
+}
+
+function AppShell({ onLogout }: { onLogout: () => void }) {
 
   const [currentView, setCurrentView] = useState('dashboard')
   const [currentMember, setCurrentMember] = useState<MemberFull | null>(null)
@@ -68,6 +89,11 @@ export default function App() {
         const match = members.find(m => m.id === Number(savedId))
         setCurrentMember(match ?? null)
       }
+    }).catch(err => {
+      // Le portage sur Django est en cours : tant que les modèles manquants ne
+      // sont pas écrits, ce Promise.all échoue en bloc. Sans ce catch, l'échec
+      // laisse un écran blanc muet au lieu de l'interface vide.
+      console.error('Chargement initial incomplet', err)
     })
   }, [])
 
@@ -253,9 +279,13 @@ export default function App() {
 
               {currentMember && !showProfilePicker && (
                 <DropdownMenuItem onClick={clearMember}>
-                  <LogOut /> Se déconnecter
+                  <UserCircle /> Changer de profil
                 </DropdownMenuItem>
               )}
+
+              <DropdownMenuItem onClick={onLogout}>
+                <LogOut /> Se déconnecter
+              </DropdownMenuItem>
 
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setRefreshKey(k => k + 1)}>
