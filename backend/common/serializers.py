@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
+from .models import Status
+
 
 class SourceAwareUniqueTogetherValidator(UniqueTogetherValidator):
     """`UniqueTogetherValidator` utilisable quand `source` diffère du nom du champ.
@@ -60,3 +62,9 @@ class TenantRelatedField(serializers.PrimaryKeyRelatedField):
 
     def get_queryset(self):
         return self.model.objects.all()
+
+
+class StatusSerializer(BaseModelSerializer):
+    class Meta:
+        model = Status
+        fields = ["id", "label", "context"]
