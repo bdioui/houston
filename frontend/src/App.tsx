@@ -233,59 +233,6 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
                 </>
               ) : null}
 
-              {/* Sélecteur de profil */}
-              {!showProfilePicker ? (
-                <DropdownMenuItem
-                  onSelect={e => e.preventDefault()}
-                  onClick={() => { setShowProfilePicker(true); setProfileSearch('') }}
-                >
-                  <UserCircle /> {currentMember ? 'Changer de profil' : 'Sélectionner mon profil'}
-                </DropdownMenuItem>
-              ) : (
-                <div
-                  className="px-2 py-1"
-                  onPointerDown={e => e.stopPropagation()}
-                  onClick={e => e.stopPropagation()}
-                >
-                  <p className="text-xs text-muted-foreground mb-1.5">Qui êtes-vous ?</p>
-                  <input
-                    autoFocus
-                    value={profileSearch}
-                    onChange={e => setProfileSearch(e.target.value)}
-                    placeholder="Rechercher..."
-                    className="w-full text-xs border rounded px-2 py-1 mb-1.5 outline-none focus:ring-1 focus:ring-ring"
-                  />
-                  <div className="max-h-44 overflow-y-auto">
-                    {allMembers
-                      .filter(m =>
-                        `${m.first_name} ${m.last_name}`.toLowerCase().includes(profileSearch.toLowerCase())
-                      )
-                      .map(m => (
-                        <button
-                          key={m.id}
-                          onClick={() => selectMember(m)}
-                          className="w-full text-left flex items-center gap-2 px-1 py-1.5 rounded hover:bg-accent text-sm"
-                        >
-                          <Avatar className="h-5 w-5">
-                            <AvatarImage src={m.profile_image} />
-                            <AvatarFallback className="text-[10px]" style={{ backgroundColor: m.partner?.color ?? '#E7E8E2' }}>
-                              {m.first_name[0]}{m.last_name[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="truncate">{m.first_name} {m.last_name}</span>
-                        </button>
-                      ))
-                    }
-                  </div>
-                </div>
-              )}
-
-              {currentMember && !showProfilePicker && (
-                <DropdownMenuItem onClick={clearMember}>
-                  <UserCircle /> Changer de profil
-                </DropdownMenuItem>
-              )}
-
               <DropdownMenuItem onClick={onLogout}>
                 <LogOut /> Se déconnecter
               </DropdownMenuItem>
