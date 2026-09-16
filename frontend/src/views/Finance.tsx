@@ -21,10 +21,9 @@ import {
     createBudgetDetail, updateBudgetDetail, deleteBudgetDetail,
     ORPHAN_STATUS,
 } from '@/lib/api'
-import type { ImportSummary } from '@/lib/api'
-import { prepareSifacImport, commitSifacImport } from '@/lib/sifac/import'
-import type { SifacPreview } from '@/lib/sifac/import'
-import { sifacCategory } from '@/lib/sifac/aggregate'
+import { sifacPreview, sifacImport } from '@/lib/api'
+import type { ImportSummary, SifacPreview } from '@/lib/api'
+import { sifacCategory } from '@/lib/sifac'
 import type { Program, Expanse, BudgetCategory, BudgetDetail, Supplier, Project, FinancialAgreement, Partner, Status, SifacLine } from '@/lib/types'
 
 const EXPANSE_CATEGORIES = ['Fonctionnement', 'Investissement', 'Personnel', 'Autre'] as const
@@ -416,19 +415,24 @@ function SifacImportButton({ onImported }: SifacImportButtonProps) {
     const [preview, setPreview] = useState<SifacPreview | null>(null)
     const [exercice, setExercice] = useState('')
     const [summary, setSummary] = useState<ImportSummary | null>(null)
+    // Le fichier est gardé entre les deux temps parce que le second le renvoie :
+    // le serveur ne garde rien entre `preview` et `import`. C'est ce qui rend
+    // l'import sans état, au prix d'une seconde lecture.
+    const [file, setFile] = useState<File | null>(null)
 
     const exerciceValid = /^\d{4}$/.test(exercice)
 
     async function handleFile(ev: React.ChangeEvent<HTMLInputElement>) {
-        const file = ev.target.files?.[0]
+        const picked = ev.target.files?.[0]
         // Vider l'input permet de resélectionner le même fichier après coup.
         ev.target.value = ''
-        if (!file) return
+        if (!picked) return
 
         setError(''); setPreview(null); setSummary(null); setExercice('')
+        setFile(picked)
         setOpen(true); setBusy(true)
         try {
-            const p = await prepareSifacImport(file)
+            const p = await sifacPreview(picked)
             setPreview(p)
             setExercice(String(p.exercice))
         } catch (err) {
@@ -439,10 +443,10 @@ function SifacImportButton({ onImported }: SifacImportButtonProps) {
     }
 
     async function confirm() {
-        if (!preview || !exerciceValid) return
+        if (!file || !preview || !exerciceValid) return
         setBusy(true); setError('')
         try {
-            const result = await commitSifacImport(preview, Number(exercice))
+            const result = await sifacImport(file, Number(exercice))
             setSummary(result)
             await onImported()
         } catch (err) {
@@ -510,11 +514,11 @@ function SifacImportButton({ onImported }: SifacImportButtonProps) {
                                 </div>
                                 <div className="rounded-lg border p-2">
                                     <p className="text-[10px] text-muted-foreground">Lignes</p>
-                                    <p className="text-sm font-medium mt-0.5 tabular-nums">{preview.lineCount}</p>
+                                    <p className="text-sm font-medium mt-0.5 tabular-nums">{preview.line_count}</p>
                                 </div>
                                 <div className="rounded-lg border p-2">
                                     <p className="text-[10px] text-muted-foreground">Dépenses</p>
-                                    <p className="text-sm font-medium mt-0.5 tabular-nums">{preview.fluxCount}</p>
+                                    <p className="text-sm font-medium mt-0.5 tabular-nums">{preview.flux_count}</p>
                                 </div>
                             </div>
 
@@ -547,7 +551,7 @@ function SifacImportButton({ onImported }: SifacImportButtonProps) {
                         ) : (
                             <>
                                 <Button variant="outline" size="sm" onClick={() => setOpen(false)} disabled={busy}>Annuler</Button>
-                                <Button size="sm" onClick={confirm} disabled={busy || !preview || !exerciceValid}>
+                                <Button size="sm" onClick={confirm} disabled={busy || !file || !preview || !exerciceValid}>
                                     {busy ? 'Import en cours…' : 'Importer'}
                                 </Button>
                             </>

@@ -1,7 +1,4 @@
-import { updateRecords, addRecords, replaceRecords } from '@/lib/grist'
 import * as http from '@/lib/client'
-import { SIFAC_OWNED_COLUMNS } from '@/lib/sifac/reconcile'
-import type { Reconciliation } from '@/lib/sifac/reconcile'
 import {
     mockStatuses, mockCategories, mockMembers, mockPartners, mockLabs, mockPartnerLabs,
     mockAxes, mockActionCards, mockProjectCalls, mockProjects,
@@ -34,15 +31,6 @@ import type {
 } from '@/lib/types'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
-
-// --- IDs des tables Grist (Grist capitalise automatiquement la 1ère lettre) ---
-// Si vos tables ont un ID différent, modifiez uniquement ici.
-// Réduit à deux entrées : seules les écritures en lot SIFAC passent encore par
-// Grist. Tout le reste adresse des routes Django, nommées par le routeur DRF.
-const T = {
-    expanse: 'Expanse',
-    sifac_line: 'Sifac_line',
-}
 
 // --- Tables de référence ---
 export async function getProgram(): Promise<Program[]> { return USE_MOCK ? mockProgram : http.get<Program[]>('/programs/') }
@@ -104,104 +92,62 @@ export async function updateExpanse(id: number, patch: Partial<Expanse>): Promis
     await http.patch(`/expanses/${id}/`, patch)
 }
 
-// Lignes SIFAC
-// Record<K, true> impose l'exhaustivité : un champ ajouté à SifacLine et oublié
-// ici casse la compilation, au lieu d'être silencieusement vide en base.
-const SIFAC_LINE_FIELDS: Record<keyof Omit<SifacLine, 'id'>, true> = {
-    pfi: true, exercice: true, flux_id: true, flux_label: true, rubrique: true,
-    supplier_name: true, supplier_code: true, account: true, account_label: true,
-    engagement_date: true, amount_engaged: true, amount_certified: true,
-    amount_received: true, invoice_number: true, invoice_date: true,
-    invoice_text: true, amount_invoiced: true, amount_paid: true,
-    payment_date: true, amount_report: true, otp: true, category: true, csf_date: true
-}
-const SIFAC_LINE_COLUMNS = Object.keys(SIFAC_LINE_FIELDS)
-
-// ┌─ Écritures en lot, encore sur Grist ────────────────────────────────────┐
-// │ `replaceSifacLines` et `applyReconciliation` sont les deux seules       │
-// │ fonctions du fichier à ne pas être passées sur HTTP, et c'est délibéré. │
-// │ Elles écrivent des milliers de lignes d'un coup ; le routeur DRF n'a    │
-// │ pas d'endpoint de lot, donc les porter telles quelles voudrait dire une │
-// │ requête par ligne — inutilisable, et jetable, puisque l'import SIFAC    │
-// │ part côté serveur en tâche Celery. Le reste de la chaîne SIFAC (lecture │
-// │ des lignes, des dépenses, des fournisseurs) est déjà sur Django.        │
-// └────────────────────────────────────────────────────────────────────────┘
-
-// Remplace toutes les lignes d'un couple (PFI, exercice) par celles de l'export.
-// L'export SIFAC est un instantané complet du périmètre, pas un différentiel.
-export async function replaceSifacLines(
-    pfi: string,
-    exercice: number,
-    rows: Omit<SifacLine, 'id'>[]
-): Promise<void> {
-    // Un export vide traduit un fichier mal lu, jamais un exercice réellement vide :
-    // sans ce garde-fou, un parsing raté effacerait le périmètre sans avertissement.
-    if (rows.length === 0) {
-        throw new Error(`Import SIFAC ${pfi} / ${exercice} : aucune ligne lue, périmètre inchangé.`)
-    }
-
-    const inScope = (l: { pfi: string; exercice: number }) => l.pfi === pfi && l.exercice === exercice
-
-    if (USE_MOCK) {
-        const kept = mockSifacLines.filter(l => !inScope(l))
-        let nextId = Math.max(0, ...mockSifacLines.map(l => l.id))
-        const added = rows.map(r => ({ id: ++nextId, ...r }))
-        mockSifacLines.splice(0, mockSifacLines.length, ...kept, ...added)
-        return
-    }
-
-    const existing = await getSifacLines()
-    const toDelete = existing.filter(inScope).map(l => l.id)
-    await replaceRecords(T.sifac_line, toDelete, rows, SIFAC_LINE_COLUMNS)
-}
+// ─── Import SIFAC ───────────────────────────────────────────────────────────
+// Toute la chaîne (lecture du fichier, agrégation, réconciliation, écriture)
+// vit côté Django, dans `backend/sifac/`. Ce qui restait ici — parse, aggregate,
+// reconcile, et les deux écritures en lot qui passaient encore par Grist — a
+// disparu avec elle.
+//
+// L'import se fait en deux temps parce que l'exercice ne figure pas dans
+// l'export : il doit être proposé, puis confirmé par l'utilisateur avant
+// d'écraser un périmètre.
 
 // Une dépense SIFAC dont le flux a disparu de l'export n'est pas supprimée : elle
 // porte peut-être un rattachement budgétaire à conserver. On la signale, l'arbitrage
-// revient à l'utilisateur.
+// revient à l'utilisateur. Le serveur pose ce statut ; la constante reste ici parce
+// que l'écran d'import l'affiche dans son compte rendu.
 export const ORPHAN_STATUS = 'Orpheline'
 
-export type ImportSummary = { created: number; updated: number; orphaned: number }
+export type SifacPreview = {
+    pfi: string
+    exercice: number
+    line_count: number
+    flux_count: number
+}
 
-export async function applyReconciliation(r: Reconciliation): Promise<ImportSummary> {
-    const summary = {
-        created: r.toCreate.length,
-        updated: r.toUpdate.length,
-        orphaned: r.toOrphan.length,
-    }
+export type ImportSummary = SifacPreview & {
+    created: number
+    updated: number
+    orphaned: number
+}
 
-    if (USE_MOCK) {
-        let nextId = Math.max(0, ...mockExpanses.map(e => e.id))
-        for (const data of r.toCreate) mockExpanses.push({ id: ++nextId, ...data })
-        const patchById = (id: number, patch: Partial<Expanse>) => {
-            const i = mockExpanses.findIndex(e => e.id === id)
-            if (i !== -1) mockExpanses[i] = { ...mockExpanses[i], ...patch }
-        }
-        for (const { id, patch } of r.toUpdate) patchById(id, patch)
-        for (const id of r.toOrphan) patchById(id, { status: ORPHAN_STATUS })
-        return summary
-    }
+// Le mode mock n'a pas de second temps possible : l'import n'est plus une
+// transformation locale de tableaux mais un aller-retour serveur. Échouer
+// franchement vaut mieux qu'un compte rendu fabriqué qui laisserait croire que
+// quelque chose a été écrit.
+const MOCK_IMPORT_ERROR =
+    "L'import SIFAC demande le serveur Django : indisponible en mode mock."
 
-    if (r.toCreate.length > 0) {
-        await addRecords(T.expanse, r.toCreate)
-    }
-    if (r.toUpdate.length > 0) {
-        await updateRecords(
-            T.expanse,
-            r.toUpdate.map(u => u.id),
-            r.toUpdate.map(u => u.patch),
-            SIFAC_OWNED_COLUMNS,
-        )
-    }
-    if (r.toOrphan.length > 0) {
-        await updateRecords(
-            T.expanse,
-            r.toOrphan,
-            r.toOrphan.map(() => ({ status: ORPHAN_STATUS })),
-            ['status'],
-        )
-    }
+function sifacForm(file: File, exercice?: number): FormData {
+    const form = new FormData()
+    form.append('file', file)
+    if (exercice !== undefined) form.append('exercice', String(exercice))
+    return form
+}
 
-    return summary
+// Premier temps : le serveur lit le fichier sans rien écrire et propose un
+// exercice.
+export async function sifacPreview(file: File): Promise<SifacPreview> {
+    if (USE_MOCK) throw new Error(MOCK_IMPORT_ERROR)
+    return http.post<SifacPreview>('/sifac/preview/', sifacForm(file))
+}
+
+// Second temps : le fichier est renvoyé plutôt que gardé en cache côté serveur.
+// L'import est ainsi sans état — pas d'entrée orpheline si l'utilisateur
+// abandonne, pas de péremption à gérer. Le coût est une seconde lecture.
+export async function sifacImport(file: File, exercice: number): Promise<ImportSummary> {
+    if (USE_MOCK) throw new Error(MOCK_IMPORT_ERROR)
+    return http.post<ImportSummary>('/sifac/import/', sifacForm(file, exercice))
 }
 
 // Supplier

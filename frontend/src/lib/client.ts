@@ -80,17 +80,24 @@ async function request<T>(
     body?: unknown,
 ): Promise<T> {
     const isWrite = method !== 'GET' && method !== 'HEAD'
-    if (isWrite) body = blankDatesToNull(body)
+
+    // Un FormData traverse sans transformation : il porte un fichier, pas un
+    // corps plat, et `blankDatesToNull` comme `JSON.stringify` n'ont rien à y
+    // faire. Surtout, on ne pose pas `Content-Type` — seul le navigateur peut
+    // l'écrire, parce qu'il doit y joindre le `boundary` qu'il vient de tirer.
+    // Le fixer à la main produit un corps que Django ne sait pas découper.
+    const isForm = body instanceof FormData
+    if (isWrite && !isForm) body = blankDatesToNull(body)
 
     const res = await fetch(`${BASE}${path}`, {
         method,
         credentials: 'same-origin',
         headers: {
             Accept: 'application/json',
-            ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+            ...(body === undefined || isForm ? {} : { 'Content-Type': 'application/json' }),
             ...(isWrite ? { 'X-CSRFToken': csrfToken() } : {}),
         },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
     })
 
     if (!res.ok) {
