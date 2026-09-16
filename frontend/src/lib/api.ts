@@ -1,4 +1,4 @@
-import { fetchTable, updateRecord, updateRecords, addRecord, addRecords, deleteRecord, replaceRecords } from '@/lib/grist'
+import { updateRecords, addRecords, replaceRecords } from '@/lib/grist'
 import * as http from '@/lib/client'
 import { SIFAC_OWNED_COLUMNS } from '@/lib/sifac/reconcile'
 import type { Reconciliation } from '@/lib/sifac/reconcile'
@@ -16,22 +16,6 @@ import {
     mockProgram, mockExpanses, mockSuppliers, mockSifacLines,
     mockPublications, mockPublicationMembers,
 } from '@/lib/mock'
-import {
-    normalizeStatuses, normalizeCategories,
-    normalizeActionCards, normalizeActionCardsFull,
-    normalizeProjectCalls, normalizeProjects, normalizeFinancialAgreements,
-    normalizePhds, normalizeMobilityGrants, normalizeKpis,
-    normalizeBudgetCategories, normalizeBudgetDetails,
-    normalizeToDoLists, normalizeToDoItems,
-    normalizeMemberActionCards, normalizeProjectActionCards, normalizeAgreementActionCards,
-    normalizePartnerCardsFull, normalizePartnerLabs, normalizeLabCardsFull,
-    normalizeGroupMember, normalizeComments, normalizeCommentsFull, normalizeProjectMembers, normalizeAgreementMembers,
-    normalizeKpiEntries, normalizeProjectPartners, normalizeProjectMilestones,
-    normalizeTimeEntry,
-    normalizeFormations, normalizeProjectFormations, normalizeProjectAttachments,
-    normalizeProgram, normalizeExpanse, normalizeSifacLine,
-    normalizePublications, normalizePublicationMembers,
-} from '@/lib/normalize'
 import type {
     Status, Category, Member, Partner, Axis, Lab, PartnerLab, LabCardFull,
     ActionCard, ActionCardFull, PartnerCardFull, ProjectCall, Project,
@@ -53,52 +37,15 @@ const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
 // --- IDs des tables Grist (Grist capitalise automatiquement la 1ère lettre) ---
 // Si vos tables ont un ID différent, modifiez uniquement ici.
+// Réduit à deux entrées : seules les écritures en lot SIFAC passent encore par
+// Grist. Tout le reste adresse des routes Django, nommées par le routeur DRF.
 const T = {
-    status: 'Status',
-    category: 'Category',
-    member: 'Member',
-    partner: 'Partner',
-    axis: 'Axis',
-    action_card: 'Action_card',
-    project_call: 'Project_call',
-    project: 'Project',
-    financial_agreement: 'Financial_agreement',
-    phd: 'Phd',
-    mobility_grant: 'Mobility_grant',
-    budget_category: 'Budget_category',
-    budget_detail: 'Budget_detail',
-    to_do_list: 'To_do_list',
-    to_do_item: 'To_do_item',
-    axis_action_card: 'Axis_action_card',
-    member_action_card: 'Member_action_card',
-    agreement_action_card: 'Agreement_action_card',
-    project_action_card: 'Project_action_card',
-    lab: 'Lab',
-    partner_lab: 'Partner_lab',
-    group: 'Group',
-    group_member: 'Group_member',
-    comment: 'Comment',
-    project_member: 'Project_member',
-    agreement_member: 'Agreement_member',
-    kpi: 'Kpi',
-    kpi_entry: 'Kpi_entry',
-    project_partner: 'Project_partner',
-    project_milestone: 'Project_milestone',
-    time_entry: 'Time_entry',
-    formation: 'Formation',
-    project_formation: 'Project_formation',
-    project_attachment: 'Project_attachment',
-    program: 'Program',
     expanse: 'Expanse',
     sifac_line: 'Sifac_line',
-    expanse_suplier: 'Expanse_suplier',
-    supplier: 'Supplier',
-    publication: 'Publication',
-    publication_member: 'Publication_member',
 }
 
 // --- Tables de référence ---
-export async function getProgram(): Promise<Program[]> { return USE_MOCK ? mockProgram : normalizeProgram(await fetchTable(T.program)) }
+export async function getProgram(): Promise<Program[]> { return USE_MOCK ? mockProgram : http.get<Program[]>('/programs/') }
 
 export async function updateProgram(id: number, patch: Partial<Omit<Program, 'id'>>): Promise<void> {
     if (USE_MOCK) {
@@ -106,38 +53,24 @@ export async function updateProgram(id: number, patch: Partial<Omit<Program, 'id
         if (p) Object.assign(p, patch)
         return
     }
-    await updateRecord(T.program, id, patch)
+    await http.patch(`/programs/${id}/`, patch)
 }
-export async function getStatuses(): Promise<Status[]> { return USE_MOCK ? mockStatuses : normalizeStatuses(await fetchTable(T.status)) }
-export async function getCategories(): Promise<Category[]> { return USE_MOCK ? mockCategories : normalizeCategories(await fetchTable(T.category)) }
-// L'API rend null pour une référence absente, les vues attendent 0. La
-// conversion tient ici et nulle part ailleurs : c'est la seule frontière que
-// src/views/ ne traverse pas.
-type Nulled<T, K extends keyof T> = Omit<T, K> & { [P in K]: T[P] | null }
-
-export async function getMembers(): Promise<Member[]> {
-    if (USE_MOCK) return mockMembers
-    const rows = await http.get<Nulled<Member, 'partner_id' | 'lab_id'>[]>('/members/')
-    return rows.map(r => ({ ...r, partner_id: r.partner_id ?? 0, lab_id: r.lab_id ?? 0 }))
-}
+export async function getStatuses(): Promise<Status[]> { return USE_MOCK ? mockStatuses : http.get<Status[]>('/statuses/') }
+export async function getCategories(): Promise<Category[]> { return USE_MOCK ? mockCategories : http.get<Category[]>('/categories/') }
+export async function getMembers(): Promise<Member[]> { return USE_MOCK ? mockMembers : http.get<Member[]>('/members/') }
 export async function getGroups(): Promise<Group[]> { return USE_MOCK ? mockGroup : http.get<Group[]>('/groups/') }
-export async function getGroupMembers(): Promise<GroupMember[]> { return USE_MOCK ? mockGroupMember : http.get<GroupMember[]>('/group-member/') }
-export async function getPartners(): Promise<Partner[]> {
-    if (USE_MOCK) return mockPartners
-    const rows = await http.get<Nulled<Partner, 'status_id'>[]>('/partners/')
-    return rows.map(r => ({ ...r, status_id: r.status_id ?? 0 }))
-}
-export async function getAxes(): Promise<Axis[]> { return USE_MOCK ? mockAxes : http.get<Axis[]>('/axis/') }
+export async function getGroupMembers(): Promise<GroupMember[]> { return USE_MOCK ? mockGroupMember : http.get<GroupMember[]>('/group-members/') }
+export async function getPartners(): Promise<Partner[]> { return USE_MOCK ? mockPartners : http.get<Partner[]>('/partners/') }
+export async function getAxes(): Promise<Axis[]> { return USE_MOCK ? mockAxes : http.get<Axis[]>('/axes/') }
 export async function getLabs(): Promise<Lab[]> { return USE_MOCK ? mockLabs : http.get<Lab[]>('/labs/') }
-export async function getPartnerLabs(): Promise<PartnerLab[]> { return USE_MOCK ? mockPartnerLabs : http.get<PartnerLab[]>('/partner-lab/') }
+export async function getPartnerLabs(): Promise<PartnerLab[]> { return USE_MOCK ? mockPartnerLabs : http.get<PartnerLab[]>('/partner-labs/') }
 
 // Budget & expanses
-export async function getExpanses(): Promise<Expanse[]> { return USE_MOCK ? mockExpanses : normalizeExpanse(await fetchTable(T.expanse)) }
-// Première fonction portée sur Django. Elle ne passe plus par normalize.ts :
-// le sérialiseur DRF rend déjà des types JSON exacts, et l'organisation est
+export async function getExpanses(): Promise<Expanse[]> { return USE_MOCK ? mockExpanses : http.get<Expanse[]>('/expanses/') }
+// Le sérialiseur DRF rend déjà des types JSON exacts, et l'organisation est
 // appliquée côté serveur — le client ne la voit ni ne l'envoie.
 export async function getSupliers(): Promise<Supplier[]> { return USE_MOCK ? mockSuppliers : http.get<Supplier[]>('/suppliers/') }
-export async function getSifacLines(): Promise<SifacLine[]> { return USE_MOCK ? mockSifacLines : normalizeSifacLine(await fetchTable(T.sifac_line)) }
+export async function getSifacLines(): Promise<SifacLine[]> { return USE_MOCK ? mockSifacLines : http.get<SifacLine[]>('/sifac-lines/') }
 
 
 // Expanses
@@ -148,8 +81,7 @@ export async function createExpanse(data: Omit<Expanse, 'id'>): Promise<Expanse>
         mockExpanses.push(expanse)
         return expanse
     }
-    const id = await addRecord(T.expanse, data)
-    return { id, ...data }
+    return http.post<Expanse>('/expanses/', data)
 }
 
 export async function deleteExpanse(expanseId: number): Promise<void> {
@@ -158,8 +90,9 @@ export async function deleteExpanse(expanseId: number): Promise<void> {
         if (idx !== -1) {
             mockExpanses.splice(idx, 1)
         }
+        return
     }
-    await deleteRecord(T.expanse, expanseId)
+    await http.del(`/expanses/${expanseId}/`)
 }
 
 export async function updateExpanse(id: number, patch: Partial<Expanse>): Promise<void> {
@@ -168,7 +101,7 @@ export async function updateExpanse(id: number, patch: Partial<Expanse>): Promis
         if (i !== -1) mockExpanses[i] = { ...mockExpanses[i], ...patch }
         return
     }
-    await updateRecord(T.expanse, id, patch)
+    await http.patch(`/expanses/${id}/`, patch)
 }
 
 // Lignes SIFAC
@@ -183,6 +116,16 @@ const SIFAC_LINE_FIELDS: Record<keyof Omit<SifacLine, 'id'>, true> = {
     payment_date: true, amount_report: true, otp: true, category: true, csf_date: true
 }
 const SIFAC_LINE_COLUMNS = Object.keys(SIFAC_LINE_FIELDS)
+
+// ┌─ Écritures en lot, encore sur Grist ────────────────────────────────────┐
+// │ `replaceSifacLines` et `applyReconciliation` sont les deux seules       │
+// │ fonctions du fichier à ne pas être passées sur HTTP, et c'est délibéré. │
+// │ Elles écrivent des milliers de lignes d'un coup ; le routeur DRF n'a    │
+// │ pas d'endpoint de lot, donc les porter telles quelles voudrait dire une │
+// │ requête par ligne — inutilisable, et jetable, puisque l'import SIFAC    │
+// │ part côté serveur en tâche Celery. Le reste de la chaîne SIFAC (lecture │
+// │ des lignes, des dépenses, des fournisseurs) est déjà sur Django.        │
+// └────────────────────────────────────────────────────────────────────────┘
 
 // Remplace toutes les lignes d'un couple (PFI, exercice) par celles de l'export.
 // L'export SIFAC est un instantané complet du périmètre, pas un différentiel.
@@ -301,8 +244,7 @@ export async function createBudgetCategory(data: Omit<BudgetCategory, 'id'>): Pr
         mockBudgetCategories.push(cat)
         return cat
     }
-    const id = await addRecord(T.budget_category, data)
-    return { id, ...data }
+    return http.post<BudgetCategory>('/budget-categories/', data)
 }
 
 export async function updateBudgetCategory(id: number, patch: Partial<BudgetCategory>): Promise<void> {
@@ -311,7 +253,7 @@ export async function updateBudgetCategory(id: number, patch: Partial<BudgetCate
         if (i !== -1) mockBudgetCategories[i] = { ...mockBudgetCategories[i], ...patch }
         return
     }
-    await updateRecord(T.budget_category, id, patch)
+    await http.patch(`/budget-categories/${id}/`, patch)
 }
 
 export async function deleteBudgetCategory(catId: number): Promise<void> {
@@ -320,7 +262,7 @@ export async function deleteBudgetCategory(catId: number): Promise<void> {
         if (idx !== -1) mockBudgetCategories.splice(idx, 1)
         return
     }
-    await deleteRecord(T.budget_category, catId)
+    await http.del(`/budget-categories/${catId}/`)
 }
 
 // budgetDetails CRUD
@@ -331,8 +273,7 @@ export async function createBudgetDetail(data: Omit<BudgetDetail, 'id'>): Promis
         mockBudgetDetails.push(detail)
         return detail
     }
-    const id = await addRecord(T.budget_detail, data)
-    return { id, ...data }
+    return http.post<BudgetDetail>('/budget-details/', data)
 }
 
 export async function deleteBudgetDetail(detailId: number): Promise<void> {
@@ -341,7 +282,7 @@ export async function deleteBudgetDetail(detailId: number): Promise<void> {
         if (idx !== -1) mockBudgetDetails.splice(idx, 1)
         return
     }
-    await deleteRecord(T.budget_detail, detailId)
+    await http.del(`/budget-details/${detailId}/`)
 }
 
 export async function updateBudgetDetail(id: number, patch: Partial<BudgetDetail>): Promise<void> {
@@ -350,22 +291,40 @@ export async function updateBudgetDetail(id: number, patch: Partial<BudgetDetail
         if (i !== -1) mockBudgetDetails[i] = { ...mockBudgetDetails[i], ...patch }
         return
     }
-    await updateRecord(T.budget_detail, id, patch)
+    await http.patch(`/budget-details/${id}/`, patch)
 }
 
 // --- Cœur du système ---
 
-export async function getActionCards(): Promise<ActionCard[]> { return USE_MOCK ? mockActionCards : normalizeActionCards(await fetchTable(T.action_card)) }
-export async function getComments(): Promise<Comment[]> { return USE_MOCK ? mockComments : normalizeComments(await fetchTable(T.comment)) }
+export async function getActionCards(): Promise<ActionCard[]> { return USE_MOCK ? mockActionCards : http.get<ActionCard[]>('/action-cards/') }
+export async function getComments(): Promise<Comment[]> { return USE_MOCK ? mockComments : http.get<Comment[]>('/comments/') }
+
+// L'arborescence des réponses se monte ici, et non plus dans normalize.ts : ce
+// n'est pas une normalisation mais une jointure, et elle n'a aucune raison de
+// vivre ailleurs que dans la fonction qui la sert.
+function buildCommentTree(comments: Comment[], members: Member[]): CommentFull[] {
+    const memberMap = new Map(members.map(m => [m.id, m]))
+    const map = new Map<number, CommentFull>()
+    for (const c of comments) {
+        map.set(c.id, { ...c, owner: memberMap.get(c.owner_id ?? -1)!, replies: [] })
+    }
+    const roots: CommentFull[] = []
+    for (const c of map.values()) {
+        if (c.parent_comment_id) map.get(c.parent_comment_id)?.replies?.push(c)
+        else roots.push(c)
+    }
+    return roots.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+}
 
 export async function getCommentsFull(cardId: number): Promise<CommentFull[]> {
     if (USE_MOCK) {
-        const filtered = mockComments.filter(c => c.action_card_id === cardId)
-        return normalizeCommentsFull(filtered as Record<string, unknown>[], mockMembers)
+        return buildCommentTree(mockComments.filter(c => c.action_card_id === cardId), mockMembers)
     }
-    const [rows, members] = await Promise.all([fetchTable(T.comment), getMembers()])
-    const filtered = rows.filter(r => r.action_card_id === cardId)
-    return normalizeCommentsFull(filtered, members)
+    const [comments, members] = await Promise.all([
+        http.get<Comment[]>(`/comments/?action_card_id=${cardId}`),
+        getMembers(),
+    ])
+    return buildCommentTree(comments, members)
 }
 
 export async function createComment(data: Omit<Comment, 'id'>): Promise<Comment> {
@@ -375,8 +334,7 @@ export async function createComment(data: Omit<Comment, 'id'>): Promise<Comment>
         mockComments.push(comment)
         return comment
     }
-    const id = await addRecord(T.comment, data)
-    return { id, ...data }
+    return http.post<Comment>('/comments/', data)
 }
 
 export async function updateComment(id: number, patch: Partial<Comment>): Promise<void> {
@@ -385,7 +343,7 @@ export async function updateComment(id: number, patch: Partial<Comment>): Promis
         if (i !== -1) mockComments[i] = { ...mockComments[i], ...patch }
         return
     }
-    await updateRecord(T.comment, id, patch)
+    await http.patch(`/comments/${id}/`, patch)
 }
 
 export async function deleteComment(id: number): Promise<void> {
@@ -394,14 +352,14 @@ export async function deleteComment(id: number): Promise<void> {
         if (idx !== -1) mockComments.splice(idx, 1)
         return
     }
-    await deleteRecord(T.comment, id)
+    await http.del(`/comments/${id}/`)
 }
-export async function getProjectCalls(): Promise<ProjectCall[]> { return USE_MOCK ? mockProjectCalls : normalizeProjectCalls(await fetchTable(T.project_call)) }
-export async function getProjects(): Promise<Project[]> { return USE_MOCK ? mockProjects : normalizeProjects(await fetchTable(T.project)) }
-export async function getFinancialAgreements(): Promise<FinancialAgreement[]> { return USE_MOCK ? mockFinancialAgreements : normalizeFinancialAgreements(await fetchTable(T.financial_agreement)) }
-export async function getPhds(): Promise<Phd[]> { return USE_MOCK ? mockPhds : normalizePhds(await fetchTable(T.phd)) }
-export async function getMobilityGrants(): Promise<MobilityGrant[]> { return USE_MOCK ? mockMobilityGrants : normalizeMobilityGrants(await fetchTable(T.mobility_grant)) }
-export async function getProjectPartners(): Promise<ProjectPartner[]> { return USE_MOCK ? mockProjectPartners : normalizeProjectPartners(await fetchTable(T.project_partner)) }
+export async function getProjectCalls(): Promise<ProjectCall[]> { return USE_MOCK ? mockProjectCalls : http.get<ProjectCall[]>('/project-calls/') }
+export async function getProjects(): Promise<Project[]> { return USE_MOCK ? mockProjects : http.get<Project[]>('/projects/') }
+export async function getFinancialAgreements(): Promise<FinancialAgreement[]> { return USE_MOCK ? mockFinancialAgreements : http.get<FinancialAgreement[]>('/agreements/') }
+export async function getPhds(): Promise<Phd[]> { return USE_MOCK ? mockPhds : http.get<Phd[]>('/phds/') }
+export async function getMobilityGrants(): Promise<MobilityGrant[]> { return USE_MOCK ? mockMobilityGrants : http.get<MobilityGrant[]>('/mobility-grants/') }
+export async function getProjectPartners(): Promise<ProjectPartner[]> { return USE_MOCK ? mockProjectPartners : http.get<ProjectPartner[]>('/project-partners/') }
 
 export async function addProjectPartner(projectId: number, partnerId: number, role: string, amount: number | null, label: string | null): Promise<ProjectPartner> {
     if (USE_MOCK) {
@@ -417,8 +375,9 @@ export async function addProjectPartner(projectId: number, partnerId: number, ro
         return link
     }
 
-    const id = await addRecord(T.project_partner, { project_id: projectId, partner_id: partnerId, role, amount: amount ?? null, label })
-    return { id, project_id: projectId, partner_id: partnerId, role, amount: amount ?? null, label: label ?? null }
+    return http.post<ProjectPartner>('/project-partners/', {
+        project_id: projectId, partner_id: partnerId, role, amount, label,
+    })
 }
 
 export async function removeProjectPartner(recordId: number): Promise<void> {
@@ -429,7 +388,7 @@ export async function removeProjectPartner(recordId: number): Promise<void> {
         }
         return
     }
-    await deleteRecord(T.project_partner, recordId)
+    await http.del(`/project-partners/${recordId}/`)
 }
 
 
@@ -439,50 +398,47 @@ export async function updateProjectPartner(id: number, patch: Partial<Omit<Proje
         if (pp) Object.assign(pp, patch)
         return
     }
-    if (Object.keys(patch).length > 0) await updateRecord(T.project_partner, id, patch)
+    if (Object.keys(patch).length > 0) await http.patch(`/project-partners/${id}/`, patch)
 }
 
 // --- Budget & indicateurs ---
 
-export async function getKpis(): Promise<Kpi[]> { return USE_MOCK ? mockKpis : normalizeKpis(await fetchTable(T.kpi)) }
-export async function getBudgetCategories(): Promise<BudgetCategory[]> { return USE_MOCK ? [...mockBudgetCategories] : normalizeBudgetCategories(await fetchTable(T.budget_category)) }
-export async function getBudgetDetails(): Promise<BudgetDetail[]> { return USE_MOCK ? [...mockBudgetDetails] : normalizeBudgetDetails(await fetchTable(T.budget_detail)) }
+export async function getKpis(): Promise<Kpi[]> { return USE_MOCK ? mockKpis : http.get<Kpi[]>('/kpis/') }
+export async function getBudgetCategories(): Promise<BudgetCategory[]> { return USE_MOCK ? [...mockBudgetCategories] : http.get<BudgetCategory[]>('/budget-categories/') }
+export async function getBudgetDetails(): Promise<BudgetDetail[]> { return USE_MOCK ? [...mockBudgetDetails] : http.get<BudgetDetail[]>('/budget-details/') }
 
 // --- To-do ---
 
-export async function getToDoLists(): Promise<ToDoList[]> { return USE_MOCK ? mockToDoLists : normalizeToDoLists(await fetchTable(T.to_do_list)) }
-export async function getToDoItems(): Promise<ToDoItem[]> { return USE_MOCK ? mockToDoItems : normalizeToDoItems(await fetchTable(T.to_do_item)) }
+export async function getToDoLists(): Promise<ToDoList[]> { return USE_MOCK ? mockToDoLists : http.get<ToDoList[]>('/todo-lists/') }
+export async function getToDoItems(): Promise<ToDoItem[]> { return USE_MOCK ? mockToDoItems : http.get<ToDoItem[]>('/todo-items/') }
 
 // --- Liens globaux (pour les filtres du kanban) ---
 
 export async function getAllAxisActionCards(): Promise<AxisActionCard[]> {
-    if (USE_MOCK) return [...mockAxisActionCards]
-    const rows = await fetchTable(T.axis_action_card)
-    return rows.map(r => ({ id: Number(r.id), axis_id: Number(r.axis_id), action_card_id: Number(r.action_card_id) }))
+    return USE_MOCK ? [...mockAxisActionCards] : http.get<AxisActionCard[]>('/axis-action-cards/')
 }
 
 export async function getAllMemberActionCards(): Promise<MemberActionCard[]> {
-    if (USE_MOCK) return [...mockMemberActionCards]
-    const rows = await fetchTable(T.member_action_card)
-    return normalizeMemberActionCards(rows)
+    return USE_MOCK ? [...mockMemberActionCards] : http.get<MemberActionCard[]>('/member-action-cards/')
 }
 
 // --- Jointures par carte ---
 
 export async function getMemberActionCardsByCard(cardId: number): Promise<(MemberActionCard & { member: Member })[]> {
+    // `?action_card_id=` : le tri se fait côté serveur, la table de liaison
+    // entière ne descend plus pour n'en garder qu'une poignée de lignes.
     const [links, members] = await (USE_MOCK
         ? Promise.resolve([
             mockMemberActionCards.filter(m => m.action_card_id === cardId),
             mockMembers,
         ])
         : Promise.all([
-            fetchTable(T.member_action_card).then(normalizeMemberActionCards),
+            http.get<MemberActionCard[]>(`/member-action-cards/?action_card_id=${cardId}`),
             getMembers(),
         ])
     )
     const memberMap = new Map((members as Member[]).map(m => [m.id, m]))
     return (links as MemberActionCard[])
-        .filter(l => l.action_card_id === cardId)
         .map(l => ({ ...l, member: memberMap.get(l.member_id)! }))
         .filter(l => l.member)
 }
@@ -491,7 +447,7 @@ export async function getActionCardsByProject(projectId: number): Promise<(Actio
     const [links, cards] = await Promise.all([
         USE_MOCK
             ? Promise.resolve(mockProjectActionCards.filter(l => l.project_id === projectId))
-            : fetchTable(T.project_action_card).then(normalizeProjectActionCards).then(ls => ls.filter(l => l.project_id === projectId)),
+            : http.get<ProjectActionCard[]>(`/project-action-cards/?project_id=${projectId}`),
         getActionCardsFull(),
     ])
     const linkMap = new Map((links as ProjectActionCard[]).map(l => [l.action_card_id, l.id]))
@@ -506,7 +462,8 @@ export async function linkActionCardToProject(projectId: number, cardId: number)
         mockProjectActionCards.push({ id: newId, project_id: projectId, action_card_id: cardId })
         return newId
     }
-    return addRecord(T.project_action_card, { project_id: projectId, action_card_id: cardId })
+    const link = await http.post<ProjectActionCard>('/project-action-cards/', { project_id: projectId, action_card_id: cardId })
+    return link.id
 }
 
 export async function updateProjectMember(id: number, role: string): Promise<void> {
@@ -515,21 +472,21 @@ export async function updateProjectMember(id: number, role: string): Promise<voi
         if (pm) pm.role = role
         return
     }
-    await updateRecord(T.project_member, id, { role })
+    await http.patch(`/project-members/${id}/`, { role })
 }
 
 export async function updateProjectMemberParticipationStatus(id: number, participation_status_id: number | null): Promise<void> {
     if (USE_MOCK) {
         const pm = mockProjectMembers.find(m => m.id === id)
-        if (pm) pm.participation_status_id = participation_status_id ?? undefined
+        if (pm) pm.participation_status_id = participation_status_id
         return
     }
-    await updateRecord(T.project_member, id, { participation_status_id })
+    await http.patch(`/project-members/${id}/`, { participation_status_id })
 }
 
 // Declaration des temps
 
-export async function getTimeEntries(): Promise<TimeEntry[]> { return USE_MOCK ? mockTimeEntry : normalizeTimeEntry(await fetchTable(T.time_entry)) }
+export async function getTimeEntries(): Promise<TimeEntry[]> { return USE_MOCK ? mockTimeEntry : http.get<TimeEntry[]>('/time-entries/') }
 
 export async function addTimeEntry(projectId: number, memberId: number, days: number, start_date: string, end_date: string): Promise<TimeEntry> {
     const fields = { project_id: projectId, member_id: memberId, days, start_date, end_date }
@@ -538,19 +495,16 @@ export async function addTimeEntry(projectId: number, memberId: number, days: nu
         mockTimeEntry.push(entry)
         return entry
     }
-    const id = await addRecord(T.time_entry, fields)
-    return { id, ...fields }
+    return http.post<TimeEntry>('/time-entries/', fields)
 }
 
 export async function removeTimeEntry(entryId: number): Promise<void> {
     if (USE_MOCK) {
         const i = mockTimeEntry.findIndex(m => m.id === entryId)
-        if (i !== -1) {
-            mockTimeEntry.splice(i, 1)
-            return
-        }
+        if (i !== -1) mockTimeEntry.splice(i, 1)
+        return
     }
-    await deleteRecord(T.time_entry, entryId)
+    await http.del(`/time-entries/${entryId}/`)
 }
 
 export async function updateTimeEntry(entryId: number, patch: Partial<Omit<TimeEntry, 'id'>>): Promise<void> {
@@ -559,7 +513,7 @@ export async function updateTimeEntry(entryId: number, patch: Partial<Omit<TimeE
         if (entry) Object.assign(entry, patch)
         return
     }
-    if (Object.keys(patch).length > 0) await updateRecord(T.time_entry, entryId, patch)
+    if (Object.keys(patch).length > 0) await http.patch(`/time-entries/${entryId}/`, patch)
 }
 
 export async function getProjectActionCardsByCard(cardId: number): Promise<(ProjectActionCard & { project: Project })[]> {
@@ -569,13 +523,12 @@ export async function getProjectActionCardsByCard(cardId: number): Promise<(Proj
             mockProjects,
         ])
         : Promise.all([
-            fetchTable(T.project_action_card).then(normalizeProjectActionCards),
+            http.get<ProjectActionCard[]>(`/project-action-cards/?action_card_id=${cardId}`),
             getProjects(),
         ])
     )
     const projectMap = new Map((projects as Project[]).map(p => [p.id, p]))
     return (links as ProjectActionCard[])
-        .filter(l => l.action_card_id === cardId)
         .map(l => ({ ...l, project: projectMap.get(l.project_id)! }))
         .filter(l => l.project)
 }
@@ -585,13 +538,14 @@ export async function getToDoListsWithItemsByCard(cardId: number): Promise<(ToDo
         const lists = mockToDoLists.filter(l => l.action_card_id === cardId)
         return lists.map(l => ({ ...l, items: mockToDoItems.filter(i => i.list_id === l.id) }))
     }
-    const [lists, items] = await Promise.all([
-        fetchTable(T.to_do_list).then(normalizeToDoLists),
-        fetchTable(T.to_do_item).then(normalizeToDoItems),
-    ])
-    return lists
-        .filter(l => l.action_card_id === cardId)
-        .map(l => ({ ...l, items: items.filter(i => i.list_id === l.id) }))
+    // Les listes sont filtrées côté serveur, les items ne peuvent pas l'être :
+    // `ToDoItem` porte sa liste, pas la carte. Il faut donc connaître les
+    // listes avant de demander leurs items — deux allers-retours, en séquence.
+    const lists = await http.get<ToDoList[]>(`/todo-lists/?action_card_id=${cardId}`)
+    const items = await Promise.all(
+        lists.map(l => http.get<ToDoItem[]>(`/todo-items/?list_id=${l.id}`))
+    )
+    return lists.map((l, i) => ({ ...l, items: items[i] }))
 }
 
 // --- Mutations sur les éléments d'une ActionCard ---
@@ -602,7 +556,7 @@ export async function updateToDoItem(id: number, patch: Partial<Pick<ToDoItem, '
         if (item) Object.assign(item, patch)
         return
     }
-    await updateRecord(T.to_do_item, id, patch)
+    await http.patch(`/todo-items/${id}/`, patch)
 }
 
 export async function addToDoItemToList(listId: number, content: string, due_date = ''): Promise<ToDoItem> {
@@ -612,10 +566,11 @@ export async function addToDoItemToList(listId: number, content: string, due_dat
         mockToDoItems.push(item)
         return item
     }
+    // `due_date` n'est posée que si elle est renseignée : `''` n'est pas une
+    // date pour Django, qui rendrait 400 là où Grist acceptait la chaîne vide.
     const fields: Record<string, unknown> = { list_id: listId, content, status_id: 8 }
     if (due_date) fields.due_date = due_date
-    const id = await addRecord(T.to_do_item, fields)
-    return { id, list_id: listId, content, status_id: 8, start_date: '', end_time: '', due_date }
+    return http.post<ToDoItem>('/todo-items/', fields)
 }
 
 export async function addToDoListToCard(cardId: number, title: string): Promise<ToDoList & { items: ToDoItem[] }> {
@@ -625,8 +580,8 @@ export async function addToDoListToCard(cardId: number, title: string): Promise<
         mockToDoLists.push(list)
         return { ...list, items: [] }
     }
-    const id = await addRecord(T.to_do_list, { action_card_id: cardId, title })
-    return { id, action_card_id: cardId, title, items: [] }
+    const list = await http.post<ToDoList>('/todo-lists/', { action_card_id: cardId, title })
+    return { ...list, items: [] }
 }
 
 export async function updateToDoList(listId: number, title: string): Promise<void> {
@@ -635,7 +590,7 @@ export async function updateToDoList(listId: number, title: string): Promise<voi
         if (list) list.title = title
         return
     }
-    await updateRecord(T.to_do_list, listId, { title })
+    await http.patch(`/todo-lists/${listId}/`, { title })
 }
 
 export async function deleteToDoList(listId: number): Promise<void> {
@@ -646,7 +601,8 @@ export async function deleteToDoList(listId: number): Promise<void> {
         itemIds.forEach(id => { const i = mockToDoItems.findIndex(x => x.id === id); if (i !== -1) mockToDoItems.splice(i, 1) })
         return
     }
-    await deleteRecord(T.to_do_list, listId)
+    // Les items suivent : `ToDoItem.todo_list` est en CASCADE côté Django.
+    await http.del(`/todo-lists/${listId}/`)
 }
 
 export async function addMemberToCard(cardId: number, memberId: number, role: string): Promise<MemberActionCard & { member: Member }> {
@@ -656,9 +612,13 @@ export async function addMemberToCard(cardId: number, memberId: number, role: st
         mockMemberActionCards.push(link)
         return { ...link, member: mockMembers.find(m => m.id === memberId)! }
     }
-    const id = await addRecord(T.member_action_card, { member_id: memberId, action_card_id: cardId, role })
-    const members = await getMembers()
-    return { id, member_id: memberId, action_card_id: cardId, role, member: members.find(m => m.id === memberId)! }
+    // Le membre est relu à l'unité : `/members/<id>/` plutôt que la table
+    // entière filtrée en mémoire, comme le faisait la version Grist.
+    const [link, member] = await Promise.all([
+        http.post<MemberActionCard>('/member-action-cards/', { member_id: memberId, action_card_id: cardId, role }),
+        http.get<Member>(`/members/${memberId}/`),
+    ])
+    return { ...link, member }
 }
 
 export async function removeMemberFromCard(linkId: number): Promise<void> {
@@ -667,7 +627,7 @@ export async function removeMemberFromCard(linkId: number): Promise<void> {
         if (i !== -1) mockMemberActionCards.splice(i, 1)
         return
     }
-    await deleteRecord(T.member_action_card, linkId)
+    await http.del(`/member-action-cards/${linkId}/`)
 }
 
 export async function updateMemberRole(linkId: number, role: string): Promise<void> {
@@ -676,16 +636,16 @@ export async function updateMemberRole(linkId: number, role: string): Promise<vo
         if (link) link.role = role
         return
     }
-    await updateRecord(T.member_action_card, linkId, { role })
+    await http.patch(`/member-action-cards/${linkId}/`, { role })
 }
 
 export async function updateParticipationStatus(linkId: number, participation_status_id: number | null): Promise<void> {
     if (USE_MOCK) {
         const link = mockMemberActionCards.find(l => l.id === linkId)
-        if (link) link.participation_status_id = participation_status_id ?? undefined
+        if (link) link.participation_status_id = participation_status_id
         return
     }
-    await updateRecord(T.member_action_card, linkId, { participation_status_id })
+    await http.patch(`/member-action-cards/${linkId}/`, { participation_status_id })
 }
 
 export async function addProjectToCard(cardId: number, projectId: number): Promise<ProjectActionCard & { project: Project }> {
@@ -695,9 +655,11 @@ export async function addProjectToCard(cardId: number, projectId: number): Promi
         mockProjectActionCards.push(link)
         return { ...link, project: mockProjects.find(p => p.id === projectId)! }
     }
-    const id = await addRecord(T.project_action_card, { project_id: projectId, action_card_id: cardId })
-    const projects = await getProjects()
-    return { id, project_id: projectId, action_card_id: cardId, project: projects.find(p => p.id === projectId)! }
+    const [link, project] = await Promise.all([
+        http.post<ProjectActionCard>('/project-action-cards/', { project_id: projectId, action_card_id: cardId }),
+        http.get<Project>(`/projects/${projectId}/`),
+    ])
+    return { ...link, project }
 }
 
 export async function removeProjectFromCard(linkId: number): Promise<void> {
@@ -706,9 +668,15 @@ export async function removeProjectFromCard(linkId: number): Promise<void> {
         if (i !== -1) mockProjectActionCards.splice(i, 1)
         return
     }
-    await deleteRecord(T.project_action_card, linkId)
+    await http.del(`/project-action-cards/${linkId}/`)
 }
 
+// `userId` ne sert plus qu'au mode mock. Côté Django le propriétaire est posé
+// par `GroupViewSet.get_create_kwargs()` à partir du membre authentifié, et
+// `owner_id` est en lecture seule dans le sérialiseur : l'envoyer n'aurait
+// aucun effet. On rend la réponse du serveur, qui porte le vrai propriétaire —
+// l'ancienne version reconstruisait l'objet à la main et perdait l'owner, qui
+// n'était jamais persisté.
 export async function addGroup(name: string, userId: number | null): Promise<Group> {
     if (USE_MOCK) {
         const id = Math.max(0, ...mockGroup.map(g => g.id)) + 1
@@ -716,8 +684,7 @@ export async function addGroup(name: string, userId: number | null): Promise<Gro
         mockGroup.push(group)
         return group
     }
-    const id = await addRecord(T.group, { name })
-    return { id, name, owner_id: userId }
+    return http.post<Group>('/groups/', { name })
 }
 
 export async function deleteGroup(id: number): Promise<void> {
@@ -726,7 +693,7 @@ export async function deleteGroup(id: number): Promise<void> {
         if (i !== -1) mockGroup.splice(i, 1)
         return
     }
-    await deleteRecord(T.group, id)
+    await http.del(`/groups/${id}/`)
 }
 
 export async function addMemberToGroup(memberId: number, groupId: number): Promise<GroupMember> {
@@ -736,8 +703,7 @@ export async function addMemberToGroup(memberId: number, groupId: number): Promi
         mockGroupMember.push(link)
         return link
     }
-    const id = await addRecord(T.group_member, { member_id: memberId, group_id: groupId })
-    return { id, member_id: memberId, group_id: groupId }
+    return http.post<GroupMember>('/group-members/', { member_id: memberId, group_id: groupId })
 }
 
 export async function removeMemberFromGroup(linkId: number): Promise<void> {
@@ -746,26 +712,28 @@ export async function removeMemberFromGroup(linkId: number): Promise<void> {
         if (i !== -1) mockGroupMember.splice(i, 1)
         return
     }
-    await deleteRecord(T.group_member, linkId)
+    await http.del(`/group-members/${linkId}/`)
 }
 
+// Ces deux fonctions traversaient la table de liaison en mémoire, après avoir
+// rapatrié les deux tables. Les filtres `?group_id=` / `?member_id=` déclarés
+// sur MemberViewSet et GroupViewSet font la traversée en SQL : une requête,
+// et rien d'autre que le résultat sur le réseau.
 export async function getMembersByGroup(groupId: number): Promise<Member[]> {
-    const [links, members] = await Promise.all([
-        USE_MOCK ? mockGroupMember : normalizeGroupMember(await fetchTable(T.group_member)),
-        getMembers()
-    ])
-    const memberIds = links.filter(l => l.group_id === groupId).map(l => l.member_id)
-    return members.filter(m => memberIds.includes(m.id))
+    if (USE_MOCK) {
+        const memberIds = mockGroupMember.filter(l => l.group_id === groupId).map(l => l.member_id)
+        return mockMembers.filter(m => memberIds.includes(m.id))
+    }
+    return http.get<Member[]>(`/members/?group_id=${groupId}`)
 }
 
 // Renvoie les groupes d'un membre spécifique
 export async function getGroupsByMember(memberId: number): Promise<Group[]> {
-    const [links, groups] = await Promise.all([
-        USE_MOCK ? mockGroupMember : normalizeGroupMember(await fetchTable(T.group_member)),
-        getGroups()
-    ])
-    const groupIds = links.filter(l => l.member_id === memberId).map(l => l.group_id)
-    return groups.filter(g => groupIds.includes(g.id))
+    if (USE_MOCK) {
+        const groupIds = mockGroupMember.filter(l => l.member_id === memberId).map(l => l.group_id)
+        return mockGroup.filter(g => groupIds.includes(g.id))
+    }
+    return http.get<Group[]>(`/groups/?member_id=${memberId}`)
 }
 
 export async function getAgreementActionCardsByCard(cardId: number): Promise<(AgreementActionCard & { agreement: FinancialAgreement })[]> {
@@ -775,13 +743,12 @@ export async function getAgreementActionCardsByCard(cardId: number): Promise<(Ag
             mockFinancialAgreements,
         ])
         : Promise.all([
-            fetchTable(T.agreement_action_card).then(normalizeAgreementActionCards),
+            http.get<AgreementActionCard[]>(`/agreement-action-cards/?action_card_id=${cardId}`),
             getFinancialAgreements(),
         ])
     )
     const agreementMap = new Map((agreements as FinancialAgreement[]).map(a => [a.id, a]))
     return (links as AgreementActionCard[])
-        .filter(l => l.action_card_id === cardId)
         .map(l => ({ ...l, agreement: agreementMap.get(l.financial_agreement_id)! }))
         .filter(l => l.agreement)
 }
@@ -793,9 +760,11 @@ export async function addAgreementToCard(cardId: number, agreementId: number): P
         mockAgreementActionCards.push(link)
         return { ...link, agreement: mockFinancialAgreements.find(a => a.id === agreementId)! }
     }
-    const id = await addRecord(T.agreement_action_card, { financial_agreement_id: agreementId, action_card_id: cardId })
-    const agreements = await getFinancialAgreements()
-    return { id, financial_agreement_id: agreementId, action_card_id: cardId, agreement: agreements.find(a => a.id === agreementId)! }
+    const [link, agreement] = await Promise.all([
+        http.post<AgreementActionCard>('/agreement-action-cards/', { financial_agreement_id: agreementId, action_card_id: cardId }),
+        http.get<FinancialAgreement>(`/agreements/${agreementId}/`),
+    ])
+    return { ...link, agreement }
 }
 
 export async function removeAgreementFromCard(linkId: number): Promise<void> {
@@ -804,7 +773,7 @@ export async function removeAgreementFromCard(linkId: number): Promise<void> {
         if (i !== -1) mockAgreementActionCards.splice(i, 1)
         return
     }
-    await deleteRecord(T.agreement_action_card, linkId)
+    await http.del(`/agreement-action-cards/${linkId}/`)
 }
 
 // --- Membres ---
@@ -818,35 +787,35 @@ export async function getMembersFull(): Promise<MemberFull[]> {
     const labMap = new Map((labs as Lab[]).map(l => [l.id, l]))
     return (members as Member[]).map(m => ({
         ...m,
-        partner: partnerMap.get(m.partner_id) ?? null,
-        lab: labMap.get(m.lab_id) ?? null,
+        partner: m.partner_id === null ? null : partnerMap.get(m.partner_id) ?? null,
+        lab: m.lab_id === null ? null : labMap.get(m.lab_id) ?? null,
     }))
 }
 
 export async function getLabCardsFull(): Promise<LabCardFull[]> {
-    const [labRows, partnerLabs, partners, members] = await (USE_MOCK
+    const [labs, partnerLabs, partners, members] = await (USE_MOCK
         ? Promise.resolve([mockLabs, mockPartnerLabs, mockPartners, mockMembers])
-        : Promise.all([
-            fetchTable(T.lab),
-            getPartnerLabs(),
-            getPartners(),
-            getMembers(),
-        ])
+        : Promise.all([getLabs(), getPartnerLabs(), getPartners(), getMembers()])
     )
-    if (USE_MOCK) {
-        return normalizeLabCardsFull(
-            (labRows as Lab[]).map(l => l as unknown as Record<string, unknown>),
-            partnerLabs as PartnerLab[],
-            partners as Partner[],
-            members as Member[],
-        )
+
+    const partnerMap = new Map((partners as Partner[]).map(p => [p.id, p]))
+    const partnersByLab = new Map<number, Partner[]>()
+    for (const pl of partnerLabs as PartnerLab[]) {
+        const partner = partnerMap.get(pl.partner_id)
+        if (partner) partnersByLab.set(pl.lab_id, [...(partnersByLab.get(pl.lab_id) ?? []), partner])
     }
-    return normalizeLabCardsFull(
-        labRows as Record<string, unknown>[],
-        partnerLabs as PartnerLab[],
-        partners as Partner[],
-        members as Member[],
-    )
+
+    const membersByLab = new Map<number, Member[]>()
+    for (const m of members as Member[]) {
+        if (m.lab_id === null) continue
+        membersByLab.set(m.lab_id, [...(membersByLab.get(m.lab_id) ?? []), m])
+    }
+
+    return (labs as Lab[]).map(lab => ({
+        ...lab,
+        partners: partnersByLab.get(lab.id) ?? [],
+        members: membersByLab.get(lab.id) ?? [],
+    }))
 }
 
 export async function addMember(fields: Omit<Member, 'id'>): Promise<Member> {
@@ -856,15 +825,11 @@ export async function addMember(fields: Omit<Member, 'id'>): Promise<Member> {
         mockMembers.push(member)
         return member
     }
-    const { lab_id, is_staff, ...gristFields } = fields
-    const id = await addRecord(T.member, gristFields)
-    if (lab_id) {
-        try { await updateRecord(T.member, id, { lab_id }) } catch { /* colonne lab_id absente */ }
-    }
-    if (is_staff !== undefined) {
-        try { await updateRecord(T.member, id, { is_staff }) } catch { /* colonne is_staff absente */ }
-    }
-    return { id, ...fields }
+    // Symétrique de `updateMember` : une écriture au lieu de trois. Le
+    // découpage `lab_id` / `is_staff` en écritures séparées avec try/catch
+    // contournait des colonnes absentes de certains documents Grist ; le
+    // schéma Django les garantit.
+    return http.post<Member>('/members/', fields)
 }
 
 export async function updateMember(id: number, patch: Partial<Omit<Member, 'id'>>): Promise<void> {
@@ -873,14 +838,10 @@ export async function updateMember(id: number, patch: Partial<Omit<Member, 'id'>
         if (m) Object.assign(m, patch)
         return
     }
-    const { lab_id, is_staff, ...gristPatch } = patch
-    if (Object.keys(gristPatch).length > 0) await updateRecord(T.member, id, gristPatch)
-    if (lab_id !== undefined) {
-        try { await updateRecord(T.member, id, { lab_id }) } catch { /* colonne lab_id absente de Grist */ }
-    }
-    if (is_staff !== undefined) {
-        try { await updateRecord(T.member, id, { is_staff }) } catch { /* colonne is_staff absente de Grist */ }
-    }
+    // Une écriture au lieu de trois, et deux try/catch en moins : le découpage
+    // servait à survivre aux colonnes `lab_id` et `is_staff` absentes de
+    // certains documents Grist. Le schéma Django les garantit.
+    await http.patch(`/members/${id}/`, patch)
 }
 
 export async function deleteMember(id: number): Promise<void> {
@@ -889,7 +850,7 @@ export async function deleteMember(id: number): Promise<void> {
         if (i !== -1) mockMembers.splice(i, 1)
         return
     }
-    await deleteRecord(T.member, id)
+    await http.del(`/members/${id}/`)
 }
 
 // --- Partenaires ---
@@ -901,8 +862,7 @@ export async function addPartner(fields: Omit<Partner, 'id'>): Promise<Partner> 
         mockPartners.push(partner)
         return partner
     }
-    const id = await addRecord(T.partner, fields)
-    return { id, ...fields }
+    return http.post<Partner>('/partners/', fields)
 }
 
 export async function updatePartner(id: number, patch: Partial<Omit<Partner, 'id'>>): Promise<void> {
@@ -911,7 +871,7 @@ export async function updatePartner(id: number, patch: Partial<Omit<Partner, 'id
         if (p) Object.assign(p, patch)
         return
     }
-    await updateRecord(T.partner, id, patch)
+    await http.patch(`/partners/${id}/`, patch)
 }
 
 export async function deletePartner(id: number): Promise<void> {
@@ -920,7 +880,7 @@ export async function deletePartner(id: number): Promise<void> {
         if (i !== -1) mockPartners.splice(i, 1)
         return
     }
-    await deleteRecord(T.partner, id)
+    await http.del(`/partners/${id}/`)
 }
 
 // --- Laboratoires ---
@@ -932,8 +892,7 @@ export async function addLab(fields: Omit<Lab, 'id'>): Promise<Lab> {
         mockLabs.push(lab)
         return lab
     }
-    const id = await addRecord(T.lab, fields)
-    return { id, ...fields }
+    return http.post<Lab>('/labs/', fields)
 }
 
 export async function updateLab(id: number, patch: Partial<Omit<Lab, 'id'>>): Promise<void> {
@@ -942,7 +901,7 @@ export async function updateLab(id: number, patch: Partial<Omit<Lab, 'id'>>): Pr
         if (l) Object.assign(l, patch)
         return
     }
-    await updateRecord(T.lab, id, patch)
+    await http.patch(`/labs/${id}/`, patch)
 }
 
 export async function deleteLab(id: number): Promise<void> {
@@ -951,7 +910,7 @@ export async function deleteLab(id: number): Promise<void> {
         if (i !== -1) mockLabs.splice(i, 1)
         return
     }
-    await deleteRecord(T.lab, id)
+    await http.del(`/labs/${id}/`)
 }
 
 export async function addPartnerToLab(labId: number, partnerId: number): Promise<PartnerLab> {
@@ -961,8 +920,7 @@ export async function addPartnerToLab(labId: number, partnerId: number): Promise
         mockPartnerLabs.push(link)
         return link
     }
-    const id = await addRecord(T.partner_lab, { lab_id: labId, partner_id: partnerId })
-    return { id, lab_id: labId, partner_id: partnerId }
+    return http.post<PartnerLab>('/partner-labs/', { lab_id: labId, partner_id: partnerId })
 }
 
 export async function removePartnerFromLab(linkId: number): Promise<void> {
@@ -971,7 +929,7 @@ export async function removePartnerFromLab(linkId: number): Promise<void> {
         if (i !== -1) mockPartnerLabs.splice(i, 1)
         return
     }
-    await deleteRecord(T.partner_lab, linkId)
+    await http.del(`/partner-labs/${linkId}/`)
 }
 
 export async function attachMemberToLab(memberId: number, labId: number): Promise<void> {
@@ -980,7 +938,7 @@ export async function attachMemberToLab(memberId: number, labId: number): Promis
         if (m) m.lab_id = labId
         return
     }
-    try { await updateRecord(T.member, memberId, { lab_id: labId }) } catch { /* colonne lab_id absente */ }
+    await http.patch(`/members/${memberId}/`, { lab_id: labId })
 }
 
 export async function detachMemberFromLab(memberId: number): Promise<void> {
@@ -989,7 +947,9 @@ export async function detachMemberFromLab(memberId: number): Promise<void> {
         if (m) m.lab_id = 0
         return
     }
-    try { await updateRecord(T.member, memberId, { lab_id: 0 }) } catch { /* colonne lab_id absente */ }
+    // `null` et non `0` : côté Django une référence vide est nulle, et `0` ne
+    // désigne aucune ligne — la requête partirait en 400.
+    await http.patch(`/members/${memberId}/`, { lab_id: null })
 }
 
 // --- Appels à projets ---
@@ -1001,8 +961,7 @@ export async function addProjectCall(fields: Omit<ProjectCall, 'id'>): Promise<P
         mockProjectCalls.push(pc)
         return pc
     }
-    const id = await addRecord(T.project_call, fields)
-    return { id, ...fields }
+    return http.post<ProjectCall>('/project-calls/', fields)
 }
 
 export async function updateProjectCall(id: number, patch: Partial<Omit<ProjectCall, 'id'>>): Promise<void> {
@@ -1011,7 +970,7 @@ export async function updateProjectCall(id: number, patch: Partial<Omit<ProjectC
         if (pc) Object.assign(pc, patch)
         return
     }
-    await updateRecord(T.project_call, id, patch)
+    await http.patch(`/project-calls/${id}/`, patch)
 }
 
 export async function deleteProjectCall(id: number): Promise<void> {
@@ -1020,7 +979,7 @@ export async function deleteProjectCall(id: number): Promise<void> {
         if (i !== -1) mockProjectCalls.splice(i, 1)
         return
     }
-    await deleteRecord(T.project_call, id)
+    await http.del(`/project-calls/${id}/`)
 }
 
 // --- Projets ---
@@ -1032,11 +991,13 @@ export async function addProject(fields: Omit<Project, 'id'>): Promise<Project> 
         mockProjects.push(project)
         return project
     }
-    const gristFields = Object.fromEntries(
-        Object.entries(fields).filter(([, v]) => v !== '' && v !== null && v !== undefined)
+    // Les chaînes vides sont retirées, les `null` non : Django refuse `''`
+    // pour une date ou une référence, mais `null` y est la valeur d'absence.
+    // Grist ne distinguait pas les deux et il fallait tout filtrer.
+    const payload = Object.fromEntries(
+        Object.entries(fields).filter(([, v]) => v !== '' && v !== undefined)
     )
-    const id = await addRecord(T.project, gristFields)
-    return { id, ...fields }
+    return http.post<Project>('/projects/', payload)
 }
 
 export async function updateProject(id: number, patch: Partial<Omit<Project, 'id'>>): Promise<void> {
@@ -1045,10 +1006,11 @@ export async function updateProject(id: number, patch: Partial<Omit<Project, 'id
         if (p) Object.assign(p, patch)
         return
     }
-    const gristPatch = Object.fromEntries(
-        Object.entries(patch).filter(([, v]) => v !== null && v !== undefined)
-    )
-    if (Object.keys(gristPatch).length > 0) await updateRecord(T.project, id, gristPatch)
+    // Les `null` sont désormais transmis, alors que Grist les faisait tomber.
+    // Changement de sens volontaire : côté Django, `null` vide la référence,
+    // ce qui est précisément ce qu'une vue veut dire en l'envoyant. Les
+    // `undefined` disparaissent d'eux-mêmes à la sérialisation JSON.
+    await http.patch(`/projects/${id}/`, patch)
 }
 
 export async function deleteProject(id: number): Promise<void> {
@@ -1057,21 +1019,18 @@ export async function deleteProject(id: number): Promise<void> {
         if (i !== -1) mockProjects.splice(i, 1)
         return
     }
-    await deleteRecord(T.project, id)
+    await http.del(`/projects/${id}/`)
 }
 
 export async function getProjectMembers(projectId: number): Promise<ProjectMember[]> {
     if (USE_MOCK) {
         return mockProjectMembers.filter(pm => pm.project_id === projectId)
     }
-    const rows = await fetchTable(T.project_member)
-    return normalizeProjectMembers(rows).filter(pm => pm.project_id === projectId)
+    return http.get<ProjectMember[]>(`/project-members/?project_id=${projectId}`)
 }
 
 export async function getAllProjectMembers(): Promise<ProjectMember[]> {
-    return USE_MOCK
-        ? mockProjectMembers
-        : normalizeProjectMembers(await fetchTable(T.project_member))
+    return USE_MOCK ? mockProjectMembers : http.get<ProjectMember[]>('/project-members/')
 }
 
 export async function addProjectMember(projectId: number, memberId: number, role: string): Promise<ProjectMember> {
@@ -1081,8 +1040,7 @@ export async function addProjectMember(projectId: number, memberId: number, role
         mockProjectMembers.push(newProjectMember)
         return newProjectMember
     }
-    const id = await addRecord(T.project_member, { project_id: projectId, member_id: memberId, role: role })
-    return { id, project_id: projectId, member_id: memberId, role: role }
+    return http.post<ProjectMember>('/project-members/', { project_id: projectId, member_id: memberId, role })
 }
 
 export async function removeProjectMember(id: number): Promise<void> {
@@ -1092,7 +1050,7 @@ export async function removeProjectMember(id: number): Promise<void> {
             mockProjectMembers.splice(i, 1)
         } return
     }
-    await deleteRecord(T.project_member, id)
+    await http.del(`/project-members/${id}/`)
 }
 
 export async function getKpiEntries(projetId: number): Promise<KpiEntry[]> {
@@ -1100,8 +1058,7 @@ export async function getKpiEntries(projetId: number): Promise<KpiEntry[]> {
         return mockKpiEntries.filter(ke => ke.project_id === projetId)
     }
 
-    const kpiEntries = normalizeKpiEntries(await fetchTable(T.kpi_entry))
-    return kpiEntries.filter(ke => ke.project_id === projetId)
+    return http.get<KpiEntry[]>(`/kpi-entries/?project_id=${projetId}`)
 }
 
 export async function addKpiEntry(fields: Omit<KpiEntry, 'id'>): Promise<KpiEntry> {
@@ -1111,8 +1068,7 @@ export async function addKpiEntry(fields: Omit<KpiEntry, 'id'>): Promise<KpiEntr
         mockKpiEntries.push(entry)
         return entry
     }
-    const id = await addRecord(T.kpi_entry, fields)
-    return { id, ...fields }
+    return http.post<KpiEntry>('/kpi-entries/', fields)
 }
 
 export async function updateKpiEntry(id: number, patch: Partial<Omit<KpiEntry, 'id'>>): Promise<void> {
@@ -1121,7 +1077,7 @@ export async function updateKpiEntry(id: number, patch: Partial<Omit<KpiEntry, '
         if (i !== -1) mockKpiEntries[i] = { ...mockKpiEntries[i], ...patch }
         return
     }
-    await updateRecord(T.kpi_entry, id, patch)
+    await http.patch(`/kpi-entries/${id}/`, patch)
 }
 
 export async function deleteKpiEntry(id: number): Promise<void> {
@@ -1130,7 +1086,7 @@ export async function deleteKpiEntry(id: number): Promise<void> {
         if (i !== -1) mockKpiEntries.splice(i, 1)
         return
     }
-    await deleteRecord(T.kpi_entry, id)
+    await http.del(`/kpi-entries/${id}/`)
 }
 
 // --- Conventions financières ---
@@ -1166,7 +1122,7 @@ export async function getAgreementsByProjectCall(projectCallId: number): Promise
     )
     const partnerMap = new Map((partners as Partner[]).map(p => [p.id, p]))
     return (agreements as FinancialAgreement[])
-        .filter(a => callProjectIds.has(a.project_id))
+        .filter(a => callProjectIds.has(a.project_id ?? -1))
         .map(a => ({ ...a, partner: partnerMap.get(a.partner_id)! }))
         .filter(a => a.partner)
 }
@@ -1175,8 +1131,7 @@ export async function getAgreementMembers(agreementId: number): Promise<Agreemen
     if (USE_MOCK) {
         return mockAgreementMembers.filter(am => am.agreement_id === agreementId)
     }
-    const rows = await fetchTable(T.agreement_member)
-    return normalizeAgreementMembers(rows).filter(am => am.agreement_id === agreementId)
+    return http.get<AgreementMember[]>(`/agreement-members/?agreement_id=${agreementId}`)
 }
 
 export async function addAgreementMember(agreementId: number, memberId: number): Promise<AgreementMember> {
@@ -1186,8 +1141,7 @@ export async function addAgreementMember(agreementId: number, memberId: number):
         mockAgreementMembers.push(newAgreementMember)
         return newAgreementMember
     }
-    const id = await addRecord(T.agreement_member, { member_id: memberId, agreement_id: agreementId })
-    return { id, member_id: memberId, agreement_id: agreementId }
+    return http.post<AgreementMember>('/agreement-members/', { member_id: memberId, agreement_id: agreementId })
 }
 
 export async function removeAgreementMember(id: number): Promise<void> {
@@ -1196,7 +1150,7 @@ export async function removeAgreementMember(id: number): Promise<void> {
         if (i !== -1) mockAgreementMembers.splice(i, 1)
         return
     }
-    await deleteRecord(T.agreement_member, id)
+    await http.del(`/agreement-members/${id}/`)
 }
 
 export async function addAgreement(fields: Omit<FinancialAgreement, 'id'>): Promise<FinancialAgreement> {
@@ -1206,8 +1160,7 @@ export async function addAgreement(fields: Omit<FinancialAgreement, 'id'>): Prom
         mockFinancialAgreements.push(agreement)
         return agreement
     }
-    const id = await addRecord(T.financial_agreement, fields)
-    return { id, ...fields }
+    return http.post<FinancialAgreement>('/agreements/', fields)
 }
 
 export async function updateAgreement(id: number, patch: Partial<Omit<FinancialAgreement, 'id'>>): Promise<void> {
@@ -1216,7 +1169,7 @@ export async function updateAgreement(id: number, patch: Partial<Omit<FinancialA
         if (a) Object.assign(a, patch)
         return
     }
-    await updateRecord(T.financial_agreement, id, patch)
+    await http.patch(`/agreements/${id}/`, patch)
 }
 
 export async function deleteAgreement(id: number): Promise<void> {
@@ -1225,7 +1178,7 @@ export async function deleteAgreement(id: number): Promise<void> {
         if (i !== -1) mockFinancialAgreements.splice(i, 1)
         return
     }
-    await deleteRecord(T.financial_agreement, id)
+    await http.del(`/agreements/${id}/`)
 }
 
 // --- Catégories ---
@@ -1237,8 +1190,9 @@ export async function createCategory(title: string, parentId: number | null, col
         mockCategories.push(cat)
         return cat
     }
-    const id = await addRecord(T.category, { title, parent_category_id: parentId ?? 0, color: color ?? '' })
-    return { id, parent_category_id: parentId, title, color: color ?? null }
+    // `parentId ?? 0` était la convention Grist pour « pas de parent ». Django
+    // attend `null` et refuserait `0`, qui ne désigne aucune ligne.
+    return http.post<Category>('/categories/', { title, parent_category_id: parentId, color: color ?? null })
 }
 
 export async function updateCategory(id: number, patch: Partial<Pick<Category, 'title' | 'parent_category_id' | 'color'>>): Promise<void> {
@@ -1247,7 +1201,7 @@ export async function updateCategory(id: number, patch: Partial<Pick<Category, '
         if (cat) Object.assign(cat, patch)
         return
     }
-    await updateRecord(T.category, id, patch)
+    await http.patch(`/categories/${id}/`, patch)
 }
 
 // --- Catégorie "Autre" ---
@@ -1263,7 +1217,8 @@ export async function getOrCreateOtherCategory(): Promise<number> {
     const cats = await getCategories()
     const existing = cats.find(c => c.title === 'Autre')
     if (existing) return existing.id
-    return await addRecord(T.category, { title: 'Autre', parent_category_id: null })
+    const cat = await http.post<Category>('/categories/', { title: 'Autre', parent_category_id: null })
+    return cat.id
 }
 
 export async function deleteCategory(id: number): Promise<void> {
@@ -1283,20 +1238,24 @@ export async function deleteCategory(id: number): Promise<void> {
         return
     }
 
-    const [allCards, allCats] = await Promise.all([
-        fetchTable(T.action_card),
-        getCategories(),
+    // Le serveur fait le tri : les deux tables entières ne transitent plus.
+    const [cards, children] = await Promise.all([
+        http.get<ActionCard[]>(`/action-cards/?category_id=${id}`),
+        http.get<Category[]>(`/categories/?parent_category_id=${id}`),
     ])
 
-    // Reassign action cards to "Autre"
-    const cardsToMove = allCards.filter(r => r.category_id === id)
-    await Promise.all(cardsToMove.map(r => updateRecord(T.action_card, r.id as number, { category_id: autreId })))
+    // Les réaffectations précèdent la suppression, et ce n'est pas un détail :
+    // `Category.parent_category` est en CASCADE côté Django. Supprimer d'abord
+    // emporterait les sous-catégories au lieu de les remonter à la racine.
+    await Promise.all([
+        // Les fiches passent à « Autre » plutôt qu'au `null` que produirait le
+        // SET_NULL du modèle : une fiche sans catégorie n'a pas de place dans
+        // l'interface.
+        ...cards.map(c => http.patch(`/action-cards/${c.id}/`, { category_id: autreId })),
+        ...children.map(c => http.patch(`/categories/${c.id}/`, { parent_category_id: null })),
+    ])
 
-    // Promote child categories to root
-    const children = allCats.filter(c => c.parent_category_id === id)
-    await Promise.all(children.map(c => updateRecord(T.category, c.id, { parent_category_id: 0 })))
-
-    await deleteRecord(T.category, id)
+    await http.del(`/categories/${id}/`)
 }
 
 // --- Mutations ---
@@ -1365,15 +1324,18 @@ export async function createActionCardFull(form: ActionCardCreateForm): Promise<
     }
 
     // 1. Créer la carte principale
-    const cardId = await addRecord(T.action_card, {
+    // Les dates vides sont retirées : `''` n'est pas une date pour Django, qui
+    // rendrait 400 là où Grist stockait la chaîne telle quelle.
+    const card = await http.post<ActionCard>('/action-cards/', {
         title: form.title,
         description: form.description,
-        start_date: form.start_date,
-        end_date: form.end_date,
+        ...(form.start_date ? { start_date: form.start_date } : {}),
+        ...(form.end_date ? { end_date: form.end_date } : {}),
         status_id: form.status_id,
         category_id: form.category_id,
         owner_id: form.owner_id,
     })
+    const cardId = card.id
 
     // 2. Lier les participants en parallèle avec les autres relations
     // L'owner est toujours ajouté comme Responsable s'il n'est pas déjà dans la liste
@@ -1381,22 +1343,23 @@ export async function createActionCardFull(form: ActionCardCreateForm): Promise<
         ? form.members
         : [{ member_id: form.owner_id, role: 'Responsable' }, ...form.members]
 
+    // Une requête par lien, là où Grist en groupait un lot. Le routeur DRF n'a
+    // pas d'endpoint de création en masse ; le nombre de participants et
+    // d'items d'une fiche se compte sur les doigts, la perte est théorique.
     await Promise.all([
-        addRecords(T.member_action_card, allParticipants.map(m => ({ member_id: m.member_id, action_card_id: cardId, role: m.role }))),
-        form.project_id
-            ? addRecord(T.project_action_card, { project_id: form.project_id, action_card_id: cardId })
-            : Promise.resolve(0),
-        form.axis_id
-            ? addRecord(T.axis_action_card, { axis_id: form.axis_id, action_card_id: cardId })
-            : Promise.resolve(0),
+        ...allParticipants.map(m =>
+            http.post('/member-action-cards/', { member_id: m.member_id, action_card_id: cardId, role: m.role })),
+        ...(form.project_id
+            ? [http.post('/project-action-cards/', { project_id: form.project_id, action_card_id: cardId })]
+            : []),
+        ...(form.axis_id
+            ? [http.post('/axis-action-cards/', { axis_id: form.axis_id, action_card_id: cardId })]
+            : []),
         (async () => {
             if (!form.todo_title && form.todo_items.length === 0) return
-            const listId = await addRecord(T.to_do_list, { action_card_id: cardId, title: form.todo_title || 'To-do' })
-            if (form.todo_items.length > 0) {
-                await addRecords(T.to_do_item, form.todo_items.map(content => ({
-                    list_id: listId, content, status_id: 8,
-                })))
-            }
+            const list = await http.post<ToDoList>('/todo-lists/', { action_card_id: cardId, title: form.todo_title || 'To-do' })
+            await Promise.all(form.todo_items.map(content =>
+                http.post('/todo-items/', { list_id: list.id, content, status_id: 8 })))
         })(),
     ])
 
@@ -1410,7 +1373,7 @@ export async function updateActionCard(
     patch: Partial<Pick<ActionCard, 'category_id' | 'status_id' | 'owner_id' | 'title' | 'description' | 'color' | 'start_date' | 'end_date' | 'full_address' | 'lat' | 'lon'>>
 ): Promise<void> {
     if (USE_MOCK) return // pas de persistance en mode mock
-    await updateRecord(T.action_card, id, patch)
+    await http.patch(`/action-cards/${id}/`, patch)
 }
 
 export async function deleteActionCard(id: number): Promise<void> {
@@ -1419,86 +1382,96 @@ export async function deleteActionCard(id: number): Promise<void> {
         if (i !== -1) mockActionCards.splice(i, 1)
         return
     }
-    await deleteRecord(T.action_card, id)
+    await http.del(`/action-cards/${id}/`)
 }
 
 // --- Requête enrichie (jointures) ---
 
+// Les trois substituts qui remplacent une référence pendante ou nulle. Ils ne
+// sont pas de la tolérance aux données sales : `owner`, `category` et `status`
+// sont tous `null=True` côté Django, et `ActionCardFull` promet des objets. Sans
+// eux, la vue lirait `.label` sur `undefined` au premier rendu.
+const FALLBACK_STATUS: Status = { id: 0, label: '—', context: 'action_card' }
+const FALLBACK_CATEGORY: Category = { id: 0, title: '—', parent_category_id: null, color: null }
+const FALLBACK_MEMBER: Member = {
+    id: 0, partner_id: null, lab_id: null, first_name: '?', last_name: '',
+    position: '', email: '', tel: '', genre: '', status: '', profile_image: '',
+    is_staff: false,
+}
+
+function joinActionCards(
+    cards: ActionCard[], statuses: Status[], categories: Category[], members: Member[],
+): ActionCardFull[] {
+    const statusMap = new Map(statuses.map(s => [s.id, s]))
+    const categoryMap = new Map(categories.map(c => [c.id, c]))
+    const memberMap = new Map(members.map(m => [m.id, m]))
+
+    return cards.map(card => {
+        const category = categoryMap.get(card.category_id ?? -1) ?? FALLBACK_CATEGORY
+        const parent = category.parent_category_id
+            ? categoryMap.get(category.parent_category_id) ?? null
+            : null
+        return {
+            ...card,
+            status: statusMap.get(card.status_id ?? -1) ?? FALLBACK_STATUS,
+            category: { ...category, parent },
+            owner: memberMap.get(card.owner_id ?? -1) ?? FALLBACK_MEMBER,
+        }
+    })
+}
+
 export async function getActionCardsFull(): Promise<ActionCardFull[]> {
     if (USE_MOCK) {
-        const statusMap = new Map(mockStatuses.map(s => [s.id, s]))
-        const categoryMap = new Map(mockCategories.map(c => [c.id, c]))
-        const memberMap = new Map(mockMembers.map(m => [m.id, m]))
+        return joinActionCards(mockActionCards, mockStatuses, mockCategories, mockMembers)
+    }
+    const [cards, statuses, categories, members] = await Promise.all([
+        getActionCards(), getStatuses(), getCategories(), getMembers(),
+    ])
+    return joinActionCards(cards, statuses, categories, members)
+}
 
-        return mockActionCards.map(card => ({
-            ...card,
-            status: statusMap.get(card.status_id)!,
-            category: {
-                ...categoryMap.get(card.category_id)!,
-                parent: (() => {
-                    const cat = categoryMap.get(card.category_id)
-                    return cat?.parent_category_id ? categoryMap.get(cat.parent_category_id) ?? null : null
-                })(),
-            },
-            owner: memberMap.get(card.owner_id)!,
-        }))
+function joinPartnerCards(
+    partners: Partner[], agreements: FinancialAgreement[], projects: Project[], members: Member[],
+): PartnerCardFull[] {
+    const membersByPartner = new Map<number, Member[]>()
+    for (const m of members) {
+        if (m.partner_id === null) continue
+        membersByPartner.set(m.partner_id, [...(membersByPartner.get(m.partner_id) ?? []), m])
     }
 
-    const [rows, statuses, categories, members] = await Promise.all([
-        fetchTable(T.action_card),
-        getStatuses(),
-        getCategories(),
-        getMembers(),
-    ])
+    const agreementsByPartner = new Map<number, FinancialAgreement[]>()
+    const projectsByPartner = new Map<number, Project[]>()
+    for (const a of agreements) {
+        agreementsByPartner.set(a.partner_id, [...(agreementsByPartner.get(a.partner_id) ?? []), a])
 
-    return normalizeActionCardsFull(rows, statuses, categories, members)
+        // Les projets d'un partenaire se déduisent de ses conventions : il n'y a
+        // pas de lien direct. Une convention détachée de son projet (`SET_NULL`)
+        // n'en apporte aucun.
+        const project = a.project_id === null ? undefined : projects.find(p => p.id === a.project_id)
+        if (!project) continue
+        const existing = projectsByPartner.get(a.partner_id) ?? []
+        // Éviter les doublons si plusieurs conventions portent le même projet.
+        if (!existing.some(p => p.id === project.id)) {
+            projectsByPartner.set(a.partner_id, [...existing, project])
+        }
+    }
+
+    return partners.map(p => ({
+        ...p,
+        members: membersByPartner.get(p.id) ?? [],
+        agreements: agreementsByPartner.get(p.id) ?? [],
+        projects: projectsByPartner.get(p.id) ?? [],
+    }))
 }
 
 export async function getPartnerCardsFull(): Promise<PartnerCardFull[]> {
     if (USE_MOCK) {
-
-        const membersByPartner = new Map<number, Member[]>()
-        for (const m of mockMembers) {
-            const existing = membersByPartner.get(m.partner_id) ?? []
-            membersByPartner.set(m.partner_id, [...existing, m])
-        }
-
-        // Agreements — boucle sur mockFinancialAgreements
-        const agreementsByPartner = new Map<number, FinancialAgreement[]>()
-        for (const a of mockFinancialAgreements) {
-            const existing = agreementsByPartner.get(a.partner_id) ?? []
-            agreementsByPartner.set(a.partner_id, [...existing, a])
-        }
-
-        // Projects — déduits depuis les conventions (pas de partner_id direct)
-        const projectsByPartner = new Map<number, Project[]>()
-        for (const a of mockFinancialAgreements) {
-            const project = mockProjects.find(p => p.id === a.project_id)
-            if (!project) continue
-            const existing = projectsByPartner.get(a.partner_id) ?? []
-            // éviter les doublons si plusieurs conventions sur le même projet
-            if (!existing.find(p => p.id === project.id)) {
-                projectsByPartner.set(a.partner_id, [...existing, project])
-            }
-        }
-
-        return mockPartners.map(partner => ({
-            ...partner,
-            members: membersByPartner.get(partner.id) ?? [],
-            agreements: agreementsByPartner.get(partner.id) ?? [],
-            projects: projectsByPartner.get(partner.id) ?? []
-
-        }))
+        return joinPartnerCards(mockPartners, mockFinancialAgreements, mockProjects, mockMembers)
     }
-
-    const [rows, financial_agreements, projects, members] = await Promise.all([
-        fetchTable(T.partner),
-        getFinancialAgreements(),
-        getProjects(),
-        getMembers(),
+    const [partners, agreements, projects, members] = await Promise.all([
+        getPartners(), getFinancialAgreements(), getProjects(), getMembers(),
     ])
-
-    return normalizePartnerCardsFull(rows, financial_agreements, projects, members)
+    return joinPartnerCards(partners, agreements, projects, members)
 }
 
 
@@ -1506,13 +1479,12 @@ export async function getPartnerCardsFull(): Promise<PartnerCardFull[]> {
 
 export async function getProjectMilestones(projectId: number): Promise<ProjectMilestone[]> {
     if (USE_MOCK) return mockProjectMilestones.filter(m => m.project_id === projectId)
-    return normalizeProjectMilestones(await fetchTable(T.project_milestone))
-        .filter(m => m.project_id === projectId)
+    return http.get<ProjectMilestone[]>(`/project-milestones/?project_id=${projectId}`)
 }
 
 export async function getAllProjectMilestones(): Promise<ProjectMilestone[]> {
     if (USE_MOCK) return [...mockProjectMilestones]
-    return normalizeProjectMilestones(await fetchTable(T.project_milestone))
+    return http.get<ProjectMilestone[]>('/project-milestones/')
 }
 
 export async function addProjectMilestone(projectId: number, fields: Omit<ProjectMilestone, 'id' | 'project_id'>): Promise<ProjectMilestone> {
@@ -1525,8 +1497,7 @@ export async function addProjectMilestone(projectId: number, fields: Omit<Projec
         mockProjectMilestones.push(milestone)
         return milestone
     }
-    const id = await addRecord(T.project_milestone, { project_id: projectId, ...fields })
-    return { id, project_id: projectId, ...fields }
+    return http.post<ProjectMilestone>('/project-milestones/', { project_id: projectId, ...fields })
 }
 
 export async function updateProjectMilestone(id: number, patch: Partial<Omit<ProjectMilestone, 'id' | 'project_id'>>): Promise<void> {
@@ -1535,7 +1506,7 @@ export async function updateProjectMilestone(id: number, patch: Partial<Omit<Pro
         if (m) Object.assign(m, patch)
         return
     }
-    if (Object.keys(patch).length > 0) await updateRecord(T.project_milestone, id, patch)
+    if (Object.keys(patch).length > 0) await http.patch(`/project-milestones/${id}/`, patch)
 }
 
 export async function deleteProjectMilestone(id: number): Promise<void> {
@@ -1544,7 +1515,7 @@ export async function deleteProjectMilestone(id: number): Promise<void> {
         if (i !== -1) mockProjectMilestones.splice(i, 1)
         return
     }
-    await deleteRecord(T.project_milestone, id)
+    await http.del(`/project-milestones/${id}/`)
 }
 
 // --- Formations ---
@@ -1556,7 +1527,7 @@ export async function getFormations(): Promise<Formation[]> {
 export async function getProjectFormationLinks(projectId: number): Promise<ProjectFormation[]> {
     return USE_MOCK
         ? mockProjectFormations.filter(pf => pf.project_id === projectId)
-        : normalizeProjectFormations(await fetchTable(T.project_formation)).filter(pf => pf.project_id === projectId)
+        : http.get<ProjectFormation[]>(`/project-formations/?project_id=${projectId}`)
 }
 
 export async function getFormationsByProject(projectId: number): Promise<Formation[]> {
@@ -1564,12 +1535,10 @@ export async function getFormationsByProject(projectId: number): Promise<Formati
         const ids = mockProjectFormations.filter(pf => pf.project_id === projectId).map(pf => pf.formation_id)
         return mockFormations.filter(f => ids.includes(f.id))
     }
-    const [links, formations] = await Promise.all([
-        fetchTable(T.project_formation).then(normalizeProjectFormations),
-        getFormations(),
-    ])
-    const ids = links.filter(pf => pf.project_id === projectId).map(pf => pf.formation_id)
-    return formations.filter(f => ids.includes(f.id))
+    // `FormationViewSet` déclare `?project_id=`, qui traverse la table de
+    // liaison côté SQL. Les deux tables ne descendent plus pour en croiser
+    // quelques lignes.
+    return http.get<Formation[]>(`/formations/?project_id=${projectId}`)
 }
 
 export async function addProjectFormation(projectId: number, formationId: number): Promise<ProjectFormation> {
@@ -1579,8 +1548,7 @@ export async function addProjectFormation(projectId: number, formationId: number
         mockProjectFormations.push(link)
         return link
     }
-    const id = await addRecord(T.project_formation, { project_id: projectId, formation_id: formationId })
-    return { id, project_id: projectId, formation_id: formationId }
+    return http.post<ProjectFormation>('/project-formations/', { project_id: projectId, formation_id: formationId })
 }
 
 export async function removeProjectFormation(linkId: number): Promise<void> {
@@ -1589,14 +1557,14 @@ export async function removeProjectFormation(linkId: number): Promise<void> {
         if (i !== -1) mockProjectFormations.splice(i, 1)
         return
     }
-    await deleteRecord(T.project_formation, linkId)
+    await http.del(`/project-formations/${linkId}/`)
 }
 
 // --- Pièces jointes ---
 
 export async function getProjectAttachments(projectId: number): Promise<ProjectAttachment[]> {
     if (USE_MOCK) return mockProjectAttachments.filter(a => a.project_id === projectId)
-    return normalizeProjectAttachments(await fetchTable(T.project_attachment)).filter(a => a.project_id === projectId)
+    return http.get<ProjectAttachment[]>(`/project-attachments/?project_id=${projectId}`)
 }
 
 export async function addProjectAttachment(projectId: number, label: string, url: string): Promise<ProjectAttachment> {
@@ -1606,8 +1574,7 @@ export async function addProjectAttachment(projectId: number, label: string, url
         mockProjectAttachments.push(attachment)
         return attachment
     }
-    const id = await addRecord(T.project_attachment, { project_id: projectId, label, url })
-    return { id, project_id: projectId, label, url }
+    return http.post<ProjectAttachment>('/project-attachments/', { project_id: projectId, label, url })
 }
 
 export async function deleteProjectAttachment(id: number): Promise<void> {
@@ -1616,15 +1583,14 @@ export async function deleteProjectAttachment(id: number): Promise<void> {
         if (i !== -1) mockProjectAttachments.splice(i, 1)
         return
     }
-    await deleteRecord(T.project_attachment, id)
+    await http.del(`/project-attachments/${id}/`)
 }
 
 // --- Publications ---
 
 export async function getPublicationsByProject(projectId: number): Promise<Publication[]> {
     if (USE_MOCK) return mockPublications.filter(p => p.project_id === projectId)
-    const rows = await fetchTable(T.publication)
-    return normalizePublications(rows).filter(p => p.project_id === projectId)
+    return http.get<Publication[]>(`/publications/?project_id=${projectId}`)
 }
 
 export async function addPublication(fields: Omit<Publication, 'id'>): Promise<Publication> {
@@ -1634,8 +1600,7 @@ export async function addPublication(fields: Omit<Publication, 'id'>): Promise<P
         mockPublications.push(pub)
         return pub
     }
-    const id = await addRecord(T.publication, fields)
-    return { id, ...fields }
+    return http.post<Publication>('/publications/', fields)
 }
 
 export async function updatePublication(id: number, patch: Partial<Omit<Publication, 'id'>>): Promise<void> {
@@ -1644,7 +1609,7 @@ export async function updatePublication(id: number, patch: Partial<Omit<Publicat
         if (i !== -1) mockPublications[i] = { ...mockPublications[i], ...patch }
         return
     }
-    await updateRecord(T.publication, id, patch)
+    await http.patch(`/publications/${id}/`, patch)
 }
 
 export async function deletePublication(id: number): Promise<void> {
@@ -1653,7 +1618,7 @@ export async function deletePublication(id: number): Promise<void> {
         if (i !== -1) mockPublications.splice(i, 1)
         return
     }
-    await deleteRecord(T.publication, id)
+    await http.del(`/publications/${id}/`)
 }
 
 // --- Publication members ---
@@ -1663,8 +1628,10 @@ export async function getPublicationMembersByProject(projectId: number): Promise
         const pubIds = new Set(mockPublications.filter(p => p.project_id === projectId).map(p => p.id))
         return mockPublicationMembers.filter(pm => pubIds.has(pm.publication_id))
     }
-    const rows = await fetchTable(T.publication_member)
-    return normalizePublicationMembers(rows)
+    // `PublicationMemberViewSet` déclare `?project_id=`, qui remonte d'un cran
+    // via `publication__project`. L'ancienne version rendait la table entière
+    // sans filtrer — le nom de la fonction mentait.
+    return http.get<PublicationMember[]>(`/publication-members/?project_id=${projectId}`)
 }
 
 export async function addPublicationMember(publicationId: number, memberId: number): Promise<PublicationMember> {
@@ -1674,9 +1641,7 @@ export async function addPublicationMember(publicationId: number, memberId: numb
         mockPublicationMembers.push(pm)
         return pm
     }
-    const fields = { publication_id: publicationId, member_id: memberId }
-    const id = await addRecord(T.publication_member, fields)
-    return { id, ...fields }
+    return http.post<PublicationMember>('/publication-members/', { publication_id: publicationId, member_id: memberId })
 }
 
 export async function deletePublicationMember(id: number): Promise<void> {
@@ -1685,5 +1650,5 @@ export async function deletePublicationMember(id: number): Promise<void> {
         if (i !== -1) mockPublicationMembers.splice(i, 1)
         return
     }
-    await deleteRecord(T.publication_member, id)
+    await http.del(`/publication-members/${id}/`)
 }

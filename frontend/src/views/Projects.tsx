@@ -112,7 +112,7 @@ function fmt(n: number) {
     return n.toLocaleString('fr-FR') + ' €'
 }
 
-function formatDate(d?: string) {
+function formatDate(d?: string | null) {
     if (!d) return null
     return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
@@ -122,7 +122,7 @@ function financingRate(budget: number, grant: number) {
     return Math.round((grant / budget) * 100)
 }
 
-function projectProgress(start_date: string, end_date: string): number | null {
+function projectProgress(start_date: string | null, end_date: string | null): number | null {
     if (!start_date || !end_date) return null
     const start = new Date(start_date).getTime()
     const end   = new Date(end_date).getTime()
@@ -354,8 +354,11 @@ type ProjectCallSheetProps = {
 function ProjectCallSheet({ open, onClose, onSaved, onDeleted, axes, statuses, editCall }: ProjectCallSheetProps) {
     const [title,       setTitle]       = useState('')
     const [description, setDescription] = useState('')
-    const [axisId,      setAxisId]      = useState<number>(0)
-    const [statusId,    setStatusId]    = useState<number>(0)
+    // `null` et non `0` pour l'absence : ces deux états partent tels quels dans
+    // le corps du POST, où `0` ne désigne aucune ligne et vaudrait un 400. Les
+    // `Select` testent déjà la valeur falsy, ils ne voient pas la différence.
+    const [axisId,      setAxisId]      = useState<number | null>(null)
+    const [statusId,    setStatusId]    = useState<number | null>(null)
     const [startDate,   setStartDate]   = useState('')
     const [endDate,     setEndDate]     = useState('')
     const [budget,      setBudget]      = useState<number>(0)
@@ -371,12 +374,14 @@ function ProjectCallSheet({ open, onClose, onSaved, onDeleted, axes, statuses, e
             setDescription(editCall.description)
             setAxisId(editCall.axis_id)
             setStatusId(editCall.status_id)
-            setStartDate(editCall.start_date)
-            setEndDate(editCall.end_date)
+            // `?? ''` et non la valeur nue : un <Input type="date"> contrôlé
+            // exige une chaîne. La conversion inverse se fait à l'écriture.
+            setStartDate(editCall.start_date ?? '')
+            setEndDate(editCall.end_date ?? '')
             setBudget(editCall.budget ?? 0)
         } else {
-            setTitle(''); setDescription(''); setAxisId(axes[0]?.id ?? 0)
-            setStatusId(statuses[0]?.id ?? 0); setStartDate(''); setEndDate(''); setBudget(0)
+            setTitle(''); setDescription(''); setAxisId(axes[0]?.id ?? null)
+            setStatusId(statuses[0]?.id ?? null); setStartDate(''); setEndDate(''); setBudget(0)
         }
         setError(null)
         setConfirming(false)
@@ -386,7 +391,9 @@ function ProjectCallSheet({ open, onClose, onSaved, onDeleted, axes, statuses, e
         if (!title.trim() || !axisId) { setError('Titre et axe sont obligatoires.'); return }
         setSubmitting(true)
         try {
-            const fields = { title, description, axis_id: axisId, status_id: statusId, start_date: startDate, end_date: endDate, budget }
+            // `|| null` : la chaîne vide du formulaire vaut « pas de date », et
+            // Django refuse `''` sur un DateField.
+            const fields = { title, description, axis_id: axisId, status_id: statusId, start_date: startDate || null, end_date: endDate || null, budget }
             if (editCall) {
                 await updateProjectCall(editCall.id, fields)
                 onSaved({ ...editCall, ...fields })
@@ -1239,7 +1246,7 @@ function ActionCardQuickCreateForm({ projectId, statuses, members, partners, onS
                         placeholder="Responsable..."
                         value={(() => { const m = members.find(m => m.id === ownerId); return m ? `${m.first_name} ${m.last_name}` : undefined })()}
                         renderItem={m => {
-                            const p = partnerMap.get(m.partner_id)
+                            const p = partnerMap.get(m.partner_id ?? -1)
                             return (
                                 <div className="flex items-center justify-between gap-2 w-full">
                                     <span>{m.first_name} {m.last_name}</span>
@@ -2079,7 +2086,7 @@ export function ProjectDetailSheet({ project, open, onClose, onUpdated, onDelete
 
                                 {milestones
                                     .slice()
-                                    .sort((a, b) => a.due_date.localeCompare(b.due_date))
+                                    .sort((a, b) => (a.due_date ?? '').localeCompare(b.due_date ?? ''))
                                     .map(m =>
                                         editingMilestone?.id === m.id ? (
                                             <div key={m.id} className="pl-6 mb-3">
@@ -3546,7 +3553,7 @@ function MemberFilter({ allMembers, allPartners, selectedIds, onChangeIds }: Mem
     // Grouper par établissement
     const groupMap = new Map<number, { partner: Partner; members: Member[] }>()
     for (const m of filtered) {
-        const partner = partnerMap.get(m.partner_id)
+        const partner = partnerMap.get(m.partner_id ?? -1)
         if (!partner) continue
         if (!groupMap.has(partner.id)) groupMap.set(partner.id, { partner, members: [] })
         groupMap.get(partner.id)!.members.push(m)
@@ -3772,7 +3779,7 @@ export default function Projects() {
 
                 const fullCalls: ProjectCallFull[] = (pcs as ProjectCall[]).map(pc => ({
                     ...pc,
-                    axis: axisMap.get(pc.axis_id) ?? { id: 0, name: 'Inconnu', description: '' },
+                    axis: axisMap.get(pc.axis_id ?? -1) ?? { id: 0, name: 'Inconnu', description: '' },
                 }))
 
                 const callMap = new Map(fullCalls.map(pc => [pc.id, pc]))
@@ -3800,22 +3807,22 @@ export default function Projects() {
     const agreementsByProject = allAgreements.reduce<Map<number, AgreementFull[]>>((acc, a) => {
         const partner = partnerMap.get(a.partner_id)
         if (!partner) return acc
-        const list = acc.get(a.project_id) ?? []
-        acc.set(a.project_id, [...list, { ...a, partner }])
+        const list = acc.get(a.project_id ?? -1) ?? []
+        acc.set(a.project_id ?? -1, [...list, { ...a, partner }])
         return acc
     }, new Map())
 
     // Filtres
 
     const filteredCalls = projectCalls.filter(pc => {
-        if (selectedAxisIds.length > 0 && !selectedAxisIds.includes(pc.axis_id)) return false
+        if (selectedAxisIds.length > 0 && !selectedAxisIds.includes(pc.axis_id ?? -1)) return false
         if (selectedCallIds.length > 0 && !selectedCallIds.includes(pc.id)) return false
         return true
     })
 
     const filteredProjects = projects.filter(p => {
         if (!filteredCalls.find(pc => pc.id === p.project_call_id)) return false
-        if (selectedStatuses.length > 0 && !selectedStatuses.includes(p.status_id)) return false
+        if (selectedStatuses.length > 0 && !selectedStatuses.includes(p.status_id ?? -1)) return false
         if (selectedMemberIds.length > 0) {
             const projectMemberIds = allProjectMembers
                 .filter(pm => pm.project_id === p.id)
@@ -3991,7 +3998,7 @@ export default function Projects() {
                 {(() => {
                     const active = selectedCallIds.length
                     const visibleCalls = selectedAxisIds.length > 0
-                        ? projectCalls.filter(pc => selectedAxisIds.includes(pc.axis_id))
+                        ? projectCalls.filter(pc => selectedAxisIds.includes(pc.axis_id ?? -1))
                         : projectCalls
                     return (
                         <DropdownMenu>
@@ -4117,7 +4124,7 @@ export default function Projects() {
 
                                             {/* Colonnes AAP */}
                                             <div className="flex flex-row h-full overflow-x-auto">
-                                                {calls.sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date)).sort((a,b) => (a.title).localeCompare(b.title)).map(pc => {
+                                                {calls.sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? '')).sort((a,b) => (a.title).localeCompare(b.title)).map(pc => {
                                                     console.log("Calls :", calls)
                                                     const pcProjects = filteredProjects.filter(p => p.project_call_id === pc.id)
                                                     const pcStatus = statuses.find(s => s.id === pc.status_id)
@@ -4295,10 +4302,10 @@ export default function Projects() {
                     if (sortKey === 'title')      { va = a.title;                          vb = b.title }
                     if (sortKey === 'call')       { va = a.projectCall.title;              vb = b.projectCall.title }
                     if (sortKey === 'axis')       { va = a.projectCall.axis.name;          vb = b.projectCall.axis.name }
-                    if (sortKey === 'status')     { va = statusMap.get(a.status_id)?.label ?? ''; vb = statusMap.get(b.status_id)?.label ?? '' }
+                    if (sortKey === 'status')     { va = statusMap.get(a.status_id ?? -1)?.label ?? ''; vb = statusMap.get(b.status_id ?? -1)?.label ?? '' }
                     if (sortKey === 'budget')     { va = a.budget;                         vb = b.budget }
-                    if (sortKey === 'start_date') { va = a.start_date;                     vb = b.start_date }
-                    if (sortKey === 'end_date')   { va = a.end_date;                       vb = b.end_date }
+                    if (sortKey === 'start_date') { va = a.start_date ?? '';               vb = b.start_date ?? '' }
+                    if (sortKey === 'end_date')   { va = a.end_date ?? '';                 vb = b.end_date ?? '' }
                     if (va < vb) return sortDir === 'asc' ? -1 : 1
                     if (va > vb) return sortDir === 'asc' ? 1 : -1
                     return 0
@@ -4367,7 +4374,7 @@ export default function Projects() {
                                     {sorted.map(p => {
                                         const agreements = agreementsByProject.get(p.id) ?? []
                                         const totalGrant = agreements.reduce((s, a) => s + a.grant, 0)
-                                        const status = statusMap.get(p.status_id)
+                                        const status = statusMap.get(p.status_id ?? -1)
                                         const isSelected = !!selectedProjects.find(sp => sp.id === p.id)
                                         return (
                                             <TableRow
@@ -4457,7 +4464,7 @@ export default function Projects() {
                                                 selectedProjects.map(p => {
                                                     const agrs = agreementsByProject.get(p.id) ?? []
                                                     const grant = agrs.reduce((s, a) => s + a.grant, 0)
-                                                    const st = statusMap.get(p.status_id)?.label ?? ''
+                                                    const st = statusMap.get(p.status_id ?? -1)?.label ?? ''
                                                     return [p.title, p.projectCall.title, p.projectCall.axis.name, st, String(p.budget), String(grant), p.start_date, p.end_date]
                                                 })
                                             )}>
@@ -4488,7 +4495,7 @@ export default function Projects() {
                 const yearStart = new Date(ganttYear, 0, 1)
                 const yearEnd   = new Date(ganttYear, 11, 31)
                 const ganttTasks: GanttTask[] = filteredProjects
-                    .filter(p => {
+                    .filter((p): p is typeof p & { start_date: string, end_date: string } => {
                         if (!p.start_date || !p.end_date) return false
                         const s = new Date(p.start_date)
                         const e = new Date(p.end_date)

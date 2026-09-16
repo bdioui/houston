@@ -24,13 +24,27 @@ function fmt(n: number) {
     return n.toLocaleString('fr-FR') + ' €'
 }
 
-function daysFromNow(dateStr: string): number {
+// Ces deux fonctions n'avaient aucune garde, contrairement aux `formatDate` des
+// autres vues : elles recevaient toujours une chaîne, vide au pire, et
+// `new Date('')` rend une date invalide dont tout calcul donne NaN — visible.
+// Django rend `null`, et `new Date(null)` vaut le 1ᵉʳ janvier 1970 : le calcul
+// aboutit, à ~20 000 jours dans le passé. Une échéance nulle s'afficherait donc
+// comme un retard colossal au lieu de ne rien afficher.
+//
+// Les deux surcharges évitent d'imposer un `?? 0` aux appelants qui viennent de
+// tester la date deux lignes plus haut : sur une `string` déjà réduite, le
+// retour est `number`, et la comparaison qui suit n'a rien à démêler.
+function daysFromNow(dateStr: string): number
+function daysFromNow(dateStr: string | null): number | null
+function daysFromNow(dateStr: string | null): number | null {
+    if (!dateStr) return null
     const d = new Date(dateStr)
     const now = new Date()
     return Math.round((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
 }
 
-function progressPercent(start: string, end: string): number {
+function progressPercent(start: string | null, end: string | null): number {
+    if (!start || !end) return 0
     const s = new Date(start).getTime()
     const e = new Date(end).getTime()
     const now = Date.now()
@@ -210,7 +224,7 @@ export default function Dashboard() {
 
     const projectStatusMap = new Map(statuses.filter(s => s.context === 'project').map(s => [s.id, s]))
     const activeStatuses   = ['En cours', 'En attente', 'Suspendu']
-    const activeProjects   = projects.filter(p => activeStatuses.includes(projectStatusMap.get(p.status_id)?.label ?? ''))
+    const activeProjects   = projects.filter(p => activeStatuses.includes(projectStatusMap.get(p.status_id ?? -1)?.label ?? ''))
     const totalGrant           = agreements.reduce((s, a) => s + a.grant, 0)
     const totalBudget          = projects.reduce((s, p) => s + p.budget, 0)
     const totalExpanses        = expanses.reduce((s, e) => s + e.amount, 0)
@@ -241,7 +255,12 @@ export default function Dashboard() {
         return dates;
         }
 
-    const validProjects = projects.filter(p => p.start_date && p.end_date)
+    // Prédicat de type plutôt que simple booléen : le nom `validProjects` disait
+    // déjà que les deux dates sont là, mais seul `p is ...` le fait savoir au
+    // compilateur, et évite un `?? ''` dans la boucle qui suit.
+    const validProjects = projects.filter(
+        (p): p is Project & { start_date: string, end_date: string } => !!p.start_date && !!p.end_date
+    )
 
     const heatmapValues = (() => {
         if (validProjects.length === 0) return []
@@ -282,10 +301,10 @@ export default function Dashboard() {
     // ── Alertes ──
 
     // Projets se terminant dans < 60 jours
-    const endingSoon = projects.filter(p => {
+    const endingSoon = projects.filter((p): p is Project & { end_date: string } => {
         if (!p.end_date) return false
         const d = daysFromNow(p.end_date)
-        const label = projectStatusMap.get(p.status_id)?.label ?? ''
+        const label = projectStatusMap.get(p.status_id ?? -1)?.label ?? ''
         return d >= 0 && d <= 60 && activeStatuses.includes(label)
     })
 
@@ -295,23 +314,23 @@ export default function Dashboard() {
     console.log('endingSoon:', endingSoon)
 
     // Projets dont la date de fin est dépassée mais encore actifs
-    const overdueProjects = projects.filter(p => {
+    const overdueProjects = projects.filter((p): p is Project & { end_date: string } => {
         if (!p.end_date) return false
-        const label = projectStatusMap.get(p.status_id)?.label ?? ''
+        const label = projectStatusMap.get(p.status_id ?? -1)?.label ?? ''
         return daysFromNow(p.end_date) < 0 && activeStatuses.includes(label)
     })
 
     const activeActionStatuses = ['En cours', 'Planifié', 'À traiter']
 
     // Actions se terminant dans < 14 jours
-    const actionEndingSoon = actionCards.filter(ac => {
+    const actionEndingSoon = actionCards.filter((ac): ac is ActionCardFull & { end_date: string } => {
         if (!ac.end_date) return false
         const d = daysFromNow(ac.end_date)
         return d >= 0 && d <= 14 && activeActionStatuses.includes(ac.status.label)
     })
 
     // Actions dont la date de fin est dépassée mais encore actives
-    const overdueActionCards = actionCards.filter(ac => {
+    const overdueActionCards = actionCards.filter((ac): ac is ActionCardFull & { end_date: string } => {
         if (!ac.end_date) return false
         return daysFromNow(ac.end_date) < 0 && activeActionStatuses.includes(ac.status.label)
     })
@@ -327,7 +346,7 @@ export default function Dashboard() {
     // Projets sans membres assignés
     const projectsWithoutMembers = projects
         .filter(p => {
-            const label = projectStatusMap.get(p.status_id)?.label ?? ''
+            const label = projectStatusMap.get(p.status_id ?? -1)?.label ?? ''
             return activeStatuses.includes(label) && !projectMembers.some(pm => pm.project_id === p.id)
         })
         .map(p => `"${p.title}"`)
@@ -438,7 +457,8 @@ export default function Dashboard() {
                             </div>
                             <div className="flex flex-col items-end gap-0.5 shrink-0">
                                 <span className="text-XL text-black">
-                                    {new Date(program.start_date).getFullYear()} — {new Date(program.end_date).getFullYear()}
+                                    {[program.start_date, program.end_date]
+                                        .map(d => d ? new Date(d).getFullYear() : '—').join(' — ')}
                                 </span>
                                 <span className="text-2XL font-medium">
                                     {progPercent}% écoulé
@@ -814,7 +834,7 @@ export default function Dashboard() {
                     </p>
                     <div className="grid grid-cols-4 gap-2">
                         {staffWithProjects.map(({ member, assignments }) => {
-                            const activeCount = assignments.filter(a => activeStatuses.includes(projectStatusMap.get(a.project.status_id)?.label ?? '')).length
+                            const activeCount = assignments.filter(a => activeStatuses.includes(projectStatusMap.get(a.project.status_id ?? -1)?.label ?? '')).length
                             const roleBreakdown = ['Responsable', 'Co-responsable', 'Contributeur'].map(r => ({
                                 role: r,
                                 count: assignments.filter(a => a.role === r).length,
@@ -881,7 +901,7 @@ export default function Dashboard() {
                                         <AlertCard
                                             key={p.id}
                                             project={p}
-                                            statusLabel={projectStatusMap.get(p.status_id)?.label ?? ''}
+                                            statusLabel={projectStatusMap.get(p.status_id ?? -1)?.label ?? ''}
                                             daysLeft={daysFromNow(p.end_date)}
                                             memberCount={projectMembers.filter(pm => pm.project_id === p.id).length}
                                             grant={agreements.filter(a => a.project_id === p.id).reduce((s, a) => s + a.grant, 0)}
@@ -903,7 +923,7 @@ export default function Dashboard() {
                                     <AlertCard
                                         key={p.id}
                                         project={p}
-                                        statusLabel={projectStatusMap.get(p.status_id)?.label ?? ''}
+                                        statusLabel={projectStatusMap.get(p.status_id ?? -1)?.label ?? ''}
                                         daysLeft={daysFromNow(p.end_date)}
                                         memberCount={projectMembers.filter(pm => pm.project_id === p.id).length}
                                         grant={agreements.filter(a => a.project_id === p.id).reduce((s, a) => s + a.grant, 0)}
@@ -1004,7 +1024,7 @@ export default function Dashboard() {
                             <p className="text-sm text-muted-foreground italic">Aucun projet assigné.</p>
                         )}
                         {staffModal.assignments.map(({ project, role }) => {
-                            const statusLabel = projectStatusMap.get(project.status_id)?.label ?? ''
+                            const statusLabel = projectStatusMap.get(project.status_id ?? -1)?.label ?? ''
                             return (
                                 <button
                                     key={project.id}

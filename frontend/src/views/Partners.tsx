@@ -103,7 +103,7 @@ const PALETTE = [
 // PARTNER FORMS & SHEETS
 // =============================================================================
 
-type PartnerForm = { name: string; description: string; color: string; logo: string; type: string; status_id: number; consortium: boolean }
+type PartnerForm = { name: string; description: string; color: string; logo: string; type: string; status_id: number | null; consortium: boolean }
 const EMPTY_PARTNER_FORM: PartnerForm = { name: '', description: '', color: '#E7E8E2', logo: '', type: 'Université et grandes écoles', status_id: 1, consortium: false }
 
 type PartnerSheetProps =

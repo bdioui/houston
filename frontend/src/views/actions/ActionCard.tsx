@@ -76,8 +76,8 @@ export type ActionCardData = {
     }
     owner?: Owner
     responsables?: Owner[]
-    start_date?: string
-    end_date?: string
+    start_date?: string | null
+    end_date?: string | null
     full_address?: string
     lon?: number | null
     lat?: number | null
@@ -95,7 +95,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const ROLES = ['Responsable', 'Contributeur', 'Observateur', 'Prospect', 'Participant']
 
-function formatDate(date?: string) {
+function formatDate(date?: string | null) {
     if (!date) return null
     return new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
@@ -305,7 +305,7 @@ function AgreementSearchInput({ agreements, partners, projects, onSelect }: Agre
 
     const filtered = query.trim().length === 0 ? agreements : agreements.filter(a => {
         const partnerName = partnerMap.get(a.partner_id)?.name.toLowerCase() ?? ''
-        const projectTitle = projectMap.get(a.project_id)?.title.toLowerCase() ?? ''
+        const projectTitle = projectMap.get(a.project_id ?? -1)?.title.toLowerCase() ?? ''
         return (
             a.title.toLowerCase().includes(query.toLowerCase()) ||
             partnerName.includes(query.toLowerCase()) ||
@@ -334,7 +334,7 @@ function AgreementSearchInput({ agreements, partners, projects, onSelect }: Agre
                     <ul className="max-h-56 overflow-y-auto py-1">
                         {filtered.map(a => {
                             const partner = partnerMap.get(a.partner_id)
-                            const project = projectMap.get(a.project_id)
+                            const project = projectMap.get(a.project_id ?? -1)
                             return (
                                 <li
                                     key={a.id}
@@ -907,13 +907,17 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
         const patch: Parameters<typeof updateActionCard>[1] = {
             title:       draft.title,
             description: draft.description ?? '',
-            start_date:  draft.start_date ?? '',
-            end_date:    draft.end_date ?? '',
+            // `?? null` et non `?? ''` : Django refuse la chaîne vide pour un
+            // DateField et rend 400. Grist l'acceptait, d'où la forme d'avant.
+            start_date:  draft.start_date ?? null,
+            end_date:    draft.end_date ?? null,
             status_id:   draft.status.id,
             category_id: draft.category.id,
             full_address: draft.full_address ?? '',
-            lon: draft.lon ?? 0,  
-            lat: draft.lat ?? 0,  
+            // Même raison, et en plus `0` est une coordonnée valide : `?? 0`
+            // plaçait dans le golfe de Guinée toute fiche sans adresse.
+            lon: draft.lon ?? null,
+            lat: draft.lat ?? null,
         }
         await updateActionCard(card.id, patch)
 
@@ -1088,7 +1092,7 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
     // Si des projets sont liés → on filtre les conventions à ces projets uniquement
     const availableAgreements = allAgreements
         .filter(a => !linkedAgreementIds.includes(a.id))
-        .filter(a => linkedProjectIds.length === 0 || linkedProjectIds.includes(a.project_id))
+        .filter(a => linkedProjectIds.length === 0 || linkedProjectIds.includes(a.project_id ?? -1))
 
     // Maps pour l'enrichissement dans les popovers
     const partnerMap = new Map(allPartners.map(p => [p.id, p]))
@@ -1681,7 +1685,7 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
                                         <div className="flex flex-col gap-1">
                                             {agreementLinks.map(l => {
                                                 const agrPartner = partnerMap.get(l.agreement.partner_id)
-                                                const agrProject = projectMap.get(l.agreement.project_id)
+                                                const agrProject = projectMap.get(l.agreement.project_id ?? -1)
                                                 return (
                                                     <Popover key={l.id}>
                                                         <PopoverTrigger asChild>

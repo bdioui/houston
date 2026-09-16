@@ -65,7 +65,10 @@ function parseAmount(raw: string): number {
     return parseFloat(raw.replace(',', '.')) || 0
 }
 
-function formatDate(d: string) {
+// `string | null` et non `string` : la garde `!d` était déjà là, seule la
+// signature mentait. Django rend `null` pour une date vide, là où Grist rendait
+// la chaîne vide — les deux sont falsy, le corps de la fonction ne bouge pas.
+function formatDate(d: string | null) {
     if (!d) return '—'
     return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
@@ -717,7 +720,7 @@ function DepensesTab({ expanses, setExpanses, budgetCategories, budgetDetails, s
             else if (sortKey === 'detail')   { va = a.budget_detail_id ? (budgetDetailMap.get(a.budget_detail_id)?.title ?? '') : ''; vb = b.budget_detail_id ? (budgetDetailMap.get(b.budget_detail_id)?.title ?? '') : '' }
             else if (sortKey === 'amount')   { va = a.amount; vb = b.amount }
             else if (sortKey === 'supplier') { va = a.supplier_id ? (supplierMap.get(a.supplier_id)?.name ?? '') : ''; vb = b.supplier_id ? (supplierMap.get(b.supplier_id)?.name ?? '') : '' }
-            else if (sortKey === 'project')  { va = a.project_id ? (projectMap.get(a.project_id)?.title ?? '') : ''; vb = b.project_id ? (projectMap.get(b.project_id)?.title ?? '') : '' }
+            else if (sortKey === 'project')  { va = a.project_id ? (projectMap.get(a.project_id ?? -1)?.title ?? '') : ''; vb = b.project_id ? (projectMap.get(b.project_id ?? -1)?.title ?? '') : '' }
             else if (sortKey === 'status')   { va = a.status; vb = b.status }
             else if (sortKey === 'purchase') { va = a.purchase_date ?? ''; vb = b.purchase_date ?? '' }
             else if (sortKey === 'payment')  { va = a.payment_date ?? ''; vb = b.payment_date ?? '' }
@@ -1461,7 +1464,7 @@ function ConventionsTab({ agreements, setAgreements, partners, projects, statuse
             if (!a.title.toLowerCase().includes(q) && !(partner?.name.toLowerCase().includes(q))) return false
         }
         if (statusFilter !== 'all') {
-            const status = statusMap.get(a.status_id)
+            const status = statusMap.get(a.status_id ?? -1)
             if (status?.label !== statusFilter) return false
         }
         if (partnerFilter !== null && a.partner_id !== partnerFilter) return false
@@ -1471,7 +1474,7 @@ function ConventionsTab({ agreements, setAgreements, partners, projects, statuse
 
     const totalGrant = agreements.reduce((s, a) => s + a.grant, 0)
     const totalBudget = agreements.reduce((s, a) => s + a.budget, 0)
-    const activeCount = agreements.filter(a => statusMap.get(a.status_id)?.label === 'Active').length
+    const activeCount = agreements.filter(a => statusMap.get(a.status_id ?? -1)?.label === 'Active').length
 
     const allFilteredSelected = filtered.length > 0 && filtered.every(a => selected.has(a.id))
     const someSelected = filtered.some(a => selected.has(a.id))
@@ -1535,10 +1538,10 @@ function ConventionsTab({ agreements, setAgreements, partners, projects, statuse
         exportToCsv('conventions.csv', ['Intitulé', 'Partenaire', 'Projet', 'Budget', 'Subvention', 'Statut', 'Date signature'], rows.map(a => [
             a.title,
             partnerMap.get(a.partner_id)?.name ?? '',
-            projectMap.get(a.project_id)?.title ?? '',
+            projectMap.get(a.project_id ?? -1)?.title ?? '',
             String(a.budget),
             String(a.grant),
-            statusMap.get(a.status_id)?.label ?? '',
+            statusMap.get(a.status_id ?? -1)?.label ?? '',
             a.signed_date,
         ]))
     }
@@ -1549,10 +1552,10 @@ function ConventionsTab({ agreements, setAgreements, partners, projects, statuse
             let va: string | number = '', vb: string | number = ''
             if (sortKey === 'title')    { va = a.title; vb = b.title }
             else if (sortKey === 'partner') { va = partnerMap.get(a.partner_id)?.name ?? ''; vb = partnerMap.get(b.partner_id)?.name ?? '' }
-            else if (sortKey === 'project') { va = projectMap.get(a.project_id)?.title ?? ''; vb = projectMap.get(b.project_id)?.title ?? '' }
+            else if (sortKey === 'project') { va = projectMap.get(a.project_id ?? -1)?.title ?? ''; vb = projectMap.get(b.project_id ?? -1)?.title ?? '' }
             else if (sortKey === 'budget')  { va = a.budget; vb = b.budget }
             else if (sortKey === 'grant')   { va = a.grant; vb = b.grant }
-            else if (sortKey === 'status')  { va = statusMap.get(a.status_id)?.label ?? ''; vb = statusMap.get(b.status_id)?.label ?? '' }
+            else if (sortKey === 'status')  { va = statusMap.get(a.status_id ?? -1)?.label ?? ''; vb = statusMap.get(b.status_id ?? -1)?.label ?? '' }
             else if (sortKey === 'signed')  { va = a.signed_date ?? ''; vb = b.signed_date ?? '' }
             const cmp = typeof va === 'number' ? va - (vb as number) : String(va).localeCompare(String(vb), 'fr', { sensitivity: 'base' })
             return sortDir === 'asc' ? cmp : -cmp
@@ -1749,8 +1752,8 @@ function ConventionsTab({ agreements, setAgreements, partners, projects, statuse
                         ) : sorted.map(a => {
                             const isSelected = selected.has(a.id)
                             const partner = partnerMap.get(a.partner_id)
-                            const project = projectMap.get(a.project_id)
-                            const status = statusMap.get(a.status_id)
+                            const project = projectMap.get(a.project_id ?? -1)
+                            const status = statusMap.get(a.status_id ?? -1)
 
                             if (editingId === a.id) return (
                                 <TableRow key={a.id} className="text-xs bg-blue-50/60">

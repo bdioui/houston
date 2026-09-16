@@ -13,5 +13,12 @@ class SifacLineViewSet(viewsets.ReadOnlyModelViewSet):
 
     serializer_class = SifacLineSerializer
 
+    # `filterset_fields` et non `build_filterset` : SifacLine n'a aucune clé
+    # étrangère, la table est volontairement plate. Ces trois champs sont des
+    # chaînes, et ce sont exactement les deux index posés sur le modèle —
+    # (pfi, exercice) pour le remplacement de périmètre, flux_id pour
+    # l'agrégation.
+    filterset_fields = ["pfi", "exercice", "flux_id"]
+
     def get_queryset(self):
         return SifacLine.objects.all()

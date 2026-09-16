@@ -61,7 +61,7 @@ function MemberSearchInput({ members, partners, onSelect }: MemberSearchInputPro
 
     const filtered = query.trim().length === 0 ? members : members.filter(m => {
         const full = `${m.first_name} ${m.last_name}`.toLowerCase()
-        const partner = partnerMap.get(m.partner_id)?.name.toLowerCase() ?? ''
+        const partner = partnerMap.get(m.partner_id ?? -1)?.name.toLowerCase() ?? ''
         return full.includes(query.toLowerCase()) || partner.includes(query.toLowerCase())
     })
 
@@ -85,7 +85,7 @@ function MemberSearchInput({ members, partners, onSelect }: MemberSearchInputPro
                 <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-md overflow-hidden">
                     <ul className="max-h-48 overflow-y-auto py-1">
                         {filtered.map(m => {
-                            const partner = partnerMap.get(m.partner_id)
+                            const partner = partnerMap.get(m.partner_id ?? -1)
                             return (
                                 <li
                                     key={m.id}

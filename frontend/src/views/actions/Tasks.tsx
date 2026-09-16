@@ -77,7 +77,7 @@ function MemberFilter({ allMembers, allPartners, selectedIds, onChangeIds }: Mem
 
     const groupMap = new Map<number, { partner: Partner; members: Member[] }>()
     for (const m of filtered) {
-        const partner = partnerMap.get(m.partner_id)
+        const partner = partnerMap.get(m.partner_id ?? -1)
         if (!partner) continue
         if (!groupMap.has(partner.id)) groupMap.set(partner.id, { partner, members: [] })
         groupMap.get(partner.id)!.members.push(m)

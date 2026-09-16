@@ -21,13 +21,27 @@ export type Category = {
     color?: string | null
 }
 
+// Règle valant pour tout ce fichier : une référence est `number | null` si et
+// seulement si sa colonne Django porte `null=True`. C'est le serveur qui décide,
+// et il rend `null` — pas `0`. Le `0` était la convention Grist ; le traduire à
+// la frontière obligeait à le retraduire à chaque écriture, sous peine de 400.
+//
+// Même règle pour les dates, et elle se résume : les 33 colonnes `DateField` du
+// schéma sont `null=True`, sauf deux horodatages posés par le serveur
+// (`Organization.created_at`, `Comment.timestamp`). Toute date est donc
+// `string | null` ici, et `Comment.timestamp` est la seule exception.
+//
+// Ce n'est pas de la prudence : `normalize.ts` rendait `''` pour une date vide,
+// et il a été supprimé. La chaîne vide n'existe plus, le `null` arrive tel quel
+// jusqu'aux vues. `new Date(null)` vaut le 1ᵉʳ janvier 1970 au lieu d'une date
+// invalide — un `!d` avant conversion, pas un `isNaN` après.
 export type Partner = {
     id: number
     name: string
     description: string
     color: string
     logo: string
-    status_id: number
+    status_id: number | null
     type: string // 'Entreprise privée' | 'Association' | ...
     consortium: boolean
 }
@@ -48,12 +62,8 @@ export type PartnerLab = {
 
 export type Member = {
     id: number
-    // 0 quand il n'y a pas de rattachement. L'API Django rend null ; la
-    // conversion se fait dans api.ts, à la frontière. Garder 0 ici évite de
-    // propager la nullité dans dix fichiers de vues pour un gain nul : aucun
-    // identifiant ne vaut 0, donc les recherches par Map échouent pareil.
-    partner_id: number
-    lab_id: number
+    partner_id: number | null
+    lab_id: number | null
     first_name: string
     last_name: string
     position: string
@@ -82,7 +92,10 @@ export type ProjectMember = {
     member_id: number
     project_id: number
     role: string
-    participation_status_id?: number
+    // `?` et `| null` disent deux choses distinctes : on peut omettre la clé en
+    // écriture (le serveur a un défaut), mais en lecture elle est toujours là,
+    // à `null` si rien n'est renseigné.
+    participation_status_id?: number | null
 }
 
 export type TimeEntry = {
@@ -90,8 +103,8 @@ export type TimeEntry = {
     member_id: number
     project_id: number
     days: number
-    start_date: string
-    end_date: string
+    start_date: string | null
+    end_date: string | null
 }
 
 export type AgreementMember = {
@@ -120,36 +133,38 @@ export type KpiEntry = {
     id: number
     project_id: number
     kpi_id: number
-    member_id: number
+    member_id: number | null
     value: number
     comment: string
-    date: string
+    date: string | null
     year: string
-    author_id: number
+    author_id: number | null
 }
 
 // --- Cœur du système ---
 
 export type ProjectCall = {
     id: number
-    axis_id: number
+    axis_id: number | null
     title: string
     description: string
-    start_date: string
-    end_date: string
-    status_id: number
+    start_date: string | null
+    end_date: string | null
+    status_id: number | null
     budget: number
 }
 
 export type Project = {
     id: number
+    // `project_call_id` n'est pas nullable : le modèle le tient en CASCADE, un
+    // projet naît toujours d'un appel. Seul le statut peut manquer.
     project_call_id: number
-    status_id: number
+    status_id: number | null
     title: string
     description: string
     budget: number
-    start_date: string
-    end_date: string
+    start_date: string | null
+    end_date: string | null
 }
 
 // types.ts
@@ -167,50 +182,53 @@ export type ProjectMilestone = {
     project_id: number
     title: string
     description: string
-    due_date: string
-    status_id: number
+    due_date: string | null
+    status_id: number | null
 }
 
 export type FinancialAgreement = {
     id: number
-    project_id: number
+    // Nullable depuis le passage de `Project` en SET_NULL : supprimer un projet
+    // détache ses conventions au lieu de les détruire. Le sérialiseur exige
+    // toujours la clé à la création, `null` y est un geste explicite.
+    project_id: number | null
     partner_id: number
     axis_id: number | null
-    status_id: number
+    status_id: number | null
     title: string
     description: string
     budget: number
     grant: number
-    signed_date: string
+    signed_date: string | null
     budget_detail_id: number | null
 }
 
 export type Phd = {
     id: number
     member_id: number
-    start_date: string
-    end_date: string
-    axis_id: number
+    start_date: string | null
+    end_date: string | null
+    axis_id: number | null
 }
 
 export type MobilityGrant = {
     id: number
     member_id: number
-    start_date: string
-    end_date: string
-    axis_id: number
+    start_date: string | null
+    end_date: string | null
+    axis_id: number | null
 }
 
 export type ActionCard = {
     id: number
-    owner_id: number
-    category_id: number
-    status_id: number
+    owner_id: number | null
+    category_id: number | null
+    status_id: number | null
     title: string
     color: string
     description: string
-    start_date: string
-    end_date: string
+    start_date: string | null
+    end_date: string | null
     full_address?: string
     lat?: number | null
     lon?: number | null
@@ -218,8 +236,8 @@ export type ActionCard = {
 
 export type Comment = {
     id: number
-    owner_id: number
-    parent_comment_id?: number
+    owner_id: number | null
+    parent_comment_id?: number | null
     action_card_id: number
     content: string
     timestamp: string
@@ -256,7 +274,7 @@ export type MemberActionCard = {
     member_id: number
     action_card_id: number
     role: string // 'Responsable' | 'Contributeur' | 'Observateur' | 'Participant'
-    participation_status_id?: number
+    participation_status_id?: number | null
 }
 
 export type AxisActionCard = {
@@ -289,10 +307,10 @@ export type ToDoItem = {
     id: number
     list_id: number
     content: string
-    status_id: number
-    start_date?: string
-    end_time?: string
-    due_date: string
+    status_id: number | null
+    start_date?: string | null
+    end_time?: string | null
+    due_date: string | null
 }
 
 // --- Types enrichis (jointures côté front) ---
@@ -331,7 +349,7 @@ export type Formation = {
     rome: string
     nsf: string
     status: string
-    expiry_date: string
+    expiry_date: string | null
     is_national: boolean
 }
 
@@ -353,8 +371,8 @@ export type Program = {
     name: string
     description: string
     budget: number
-    start_date: string
-    end_date: string
+    start_date: string | null
+    end_date: string | null
     logo: string
     management_fee_rate: number | null
 }
@@ -396,10 +414,10 @@ export type Expanse = {
     supplier_id: number | null
     project_id: number | null
     agreement_id: number | null
-    purchase_date: string
-    delivery_date: string
-    payment_date: string
-    invoice_date: string
+    purchase_date: string | null
+    delivery_date: string | null
+    payment_date: string | null
+    invoice_date: string | null
     status: string
     flux_id: string | null           // null = saisie manuelle
     source: 'sifac' | 'manual'
@@ -420,17 +438,17 @@ export type SifacLine = {
     supplier_code: string    // Numéro du tiers fournisseur
     account: string          // Compte général
     account_label: string    // Libellé Compte général
-    engagement_date: string  // Date initiale de l'engagement
-    csf_date: string         // Date de livraison service fait
+    engagement_date: string | null  // Date initiale de l'engagement
+    csf_date: string | null         // Date de livraison service fait
     amount_engaged: number   // Montant engagé HTR
     amount_certified: number // Montant HTR des SF certifiés
     amount_received: number  // Montant réceptionné non facturé
     invoice_number: string
-    invoice_date: string     // Date comptable facture
+    invoice_date: string | null     // Date comptable facture
     invoice_text: string     // Texte facture
     amount_invoiced: number  // Montant facturé HTR
     amount_paid: number      // Montant payé HTR
-    payment_date: string
+    payment_date: string | null
     amount_report: number    // Report
     otp: string              // Elément d'OTP
     category: string         // FG/IG/MS

@@ -48,8 +48,11 @@ type MemberForm = {
     tel:           string
     genre:         string
     status:        string
-    partner_id:    number
-    lab_id:        number
+    // Nullable comme la colonne : le `0` d'avant n'était pas « aucun » pour
+    // Django, qui refuse un identifiant inexistant. Les `find(p => p.id === ...)`
+    // du formulaire ne trouvent rien sur `null`, ce qui est le comportement voulu.
+    partner_id:    number | null
+    lab_id:        number | null
     profile_image: string
     is_staff:      boolean
 }
@@ -62,8 +65,8 @@ const EMPTY_FORM: MemberForm = {
     tel:           '',
     genre:         'F',
     status:        'Enseignant-chercheur',
-    partner_id:    0,
-    lab_id:        0,
+    partner_id:    null,
+    lab_id:        null,
     profile_image: '',
     is_staff:      false,
 }
@@ -1367,7 +1370,7 @@ export default function Members() {
             m.position.toLowerCase().includes(query.toLowerCase()) ||
             m.email.toLowerCase().includes(query.toLowerCase())
         const matchesStatus  = statusFilter.length === 0 || statusFilter.includes(m.status)
-        const matchesPartner = partnerFilter.length === 0 || partnerFilter.includes(m.partner_id)
+        const matchesPartner = partnerFilter.length === 0 || partnerFilter.includes(m.partner_id ?? -1)
         const matchesGroup = groupFilter.length === 0 || groupLinks.some(l => groupFilter.includes(l.group_id) && l.member_id === m.id)
         const isStaff = isStaffFilter === true ? m.is_staff === true : true
         return matchesQuery && matchesStatus && matchesPartner && matchesGroup && isStaff

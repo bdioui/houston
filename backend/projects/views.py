@@ -1,3 +1,6 @@
+from django_filters import NumberFilter
+
+from common.filters import build_filterset
 from common.views import TenantViewSet
 
 from .models import (
@@ -23,6 +26,12 @@ class AxisViewSet(TenantViewSet):
 
 class GroupViewSet(TenantViewSet):
     serializer_class = GroupSerializer
+
+    # Symétrique de `MemberViewSet.group_id` : les groupes d'un membre.
+    filterset_class = build_filterset(
+        GroupSerializer,
+        member_id=NumberFilter(field_name="member_links__member"),
+    )
 
     def get_queryset(self):
         return Group.objects.all()
@@ -137,6 +146,13 @@ class PublicationViewSet(TenantViewSet):
 
 class PublicationMemberViewSet(TenantViewSet):
     serializer_class = PublicationMemberSerializer
+
+    # `?project_id=` remonte d'un cran : les auteurs des publications d'un
+    # projet. Le lien ne porte pas le projet, sa publication si.
+    filterset_class = build_filterset(
+        PublicationMemberSerializer,
+        project_id=NumberFilter(field_name="publication__project"),
+    )
 
     def get_queryset(self):
         return PublicationMember.objects.all()

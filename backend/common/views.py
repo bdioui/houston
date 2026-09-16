@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from django.db import IntegrityError, transaction
 from rest_framework import serializers, viewsets
 
+from .filters import auto_filterset
 from .models import Status
 from .serializers import StatusSerializer
 from .tenant import get_current_org
@@ -53,6 +54,16 @@ class TenantViewSet(viewsets.ModelViewSet):
     n'expose pas et que le client ne doit jamais pouvoir choisir — et de
     rattraper les violations d'unicité que DRF ne sait pas anticiper.
     """
+
+    @property
+    def filterset_class(self):
+        """Filtres de relation, déduits du sérialiseur.
+
+        Une propriété et non un attribut : une sous-classe qui écrit
+        `filterset_class = MonFilterSet` la masque naturellement, ce qui est la
+        porte de sortie pour les traversées que le sérialiseur ne décrit pas.
+        """
+        return auto_filterset(self.serializer_class)
 
     def get_create_kwargs(self):
         """Champs posés par le serveur à la création.

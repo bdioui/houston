@@ -45,7 +45,7 @@ export function ProjectViewerSheet({ project, open, onClose, onUpdated }: { proj
             const axisMap = new Map((axes as Axis[]).map(a => [a.id, a]))
             const fullCalls: ProjectCallFull[] = (calls as ProjectCall[]).map(c => ({
                 ...c,
-                axis: axisMap.get(c.axis_id) ?? { id: 0, name: 'Inconnu', description: '' },
+                axis: axisMap.get(c.axis_id ?? -1) ?? { id: 0, name: 'Inconnu', description: '' },
             }))
             const callMap = new Map(fullCalls.map(c => [c.id, c]))
             const projectFull: ProjectFull = {

@@ -24,7 +24,7 @@ export default function MemberSearchInput({ members, partners, linkedMembers, on
 
     const filtered = (query.trim().length === 0 ? members : members.filter(m => {
         const full = `${m.first_name} ${m.last_name}`.toLowerCase()
-        const partner = partnerMap.get(m.partner_id)?.name.toLowerCase() ?? ''
+        const partner = partnerMap.get(m.partner_id ?? -1)?.name.toLowerCase() ?? ''
         return full.includes(query.toLowerCase()) || m.email.includes(query.toLowerCase()) || partner.includes(query.toLowerCase())
     })).filter(m => !chippedEmails.has(m.email))
 
@@ -98,7 +98,7 @@ export default function MemberSearchInput({ members, partners, linkedMembers, on
                     <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-md overflow-hidden">
                         <ul className="max-h-48 overflow-y-auto py-1">
                             {filtered.map(m => {
-                                const partner = partnerMap.get(m.partner_id)
+                                const partner = partnerMap.get(m.partner_id ?? -1)
                                 return (
                                     <li key={m.id} onMouseDown={() => selectFromDropdown(m)} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-muted">
                                         <span>{m.first_name} {m.last_name}</span>

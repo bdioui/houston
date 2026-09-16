@@ -60,9 +60,9 @@ function buildGraph(members: Member[], partners: Partner[], projects: Project[],
         .map(m => ({
             id:          m.id,
             name:        `${m.first_name} ${m.last_name}`,
-            color:       partnerColor.get(m.partner_id) ?? '#94a3b8',
+            color:       partnerColor.get(m.partner_id ?? -1) ?? '#94a3b8',
             sub:         m.position ?? m.status ?? '',
-            partnerName: partnerName.get(m.partner_id) ?? '',
+            partnerName: partnerName.get(m.partner_id ?? -1) ?? '',
         }))
 
     return { nodes, edges }

@@ -45,10 +45,13 @@ export default function App() {
 
   if (checking) return null
   if (!user) return <LoginScreen onSuccess={setUser} />
-  return <AppShell onLogout={() => apiLogout().then(() => setUser(null))} />
+  return <AppShell
+            user={user}
+            onLogout={() => apiLogout().then(() => setUser(null))}
+          />
 }
 
-function AppShell({ onLogout }: { onLogout: () => void }) {
+function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
 
   const [currentView, setCurrentView] = useState('dashboard')
   const [currentMember, setCurrentMember] = useState<MemberFull | null>(null)
@@ -84,9 +87,8 @@ function AppShell({ onLogout }: { onLogout: () => void }) {
       setAgreements(agreements)
       setMilestones(milestones)
       setExpanses(expanses)
-      const savedId = localStorage.getItem(STORAGE_KEY)
-      if (savedId) {
-        const match = members.find(m => m.id === Number(savedId))
+      if (user) {
+        const match = members.find(m => m.id === Number(user.id))
         setCurrentMember(match ?? null)
       }
     }).catch(err => {
@@ -118,13 +120,13 @@ function AppShell({ onLogout }: { onLogout: () => void }) {
 
     // 1. ActionCards expirant dans < 10j (non terminées / non annulées, owner ou Responsable)
     const cardAlerts: AlertItem[] = actions
-      .filter(c => myCardIds.has(c.id) && c.end_date && c.status_id !== 3 && c.status_id !== 4)
+      .filter((c): c is ActionCardFull & { end_date: string } => myCardIds.has(c.id) && !!c.end_date && c.status_id !== 3 && c.status_id !== 4)
       .filter(c => (new Date(c.end_date).getTime() - now) / (1000 * 60 * 60 * 24) < 10)
       .map(c => ({ id: c.id, type: 'card', title: c.title, daysLeft: daysLeft(c.end_date), seen: seenIds.has(`card-${c.id}`) }))
 
     // 2. Projets expirant dans < 30j (non terminés)
     const projectAlerts: AlertItem[] = projects
-      .filter(p => memberProjectIds.has(p.id) && p.end_date && p.status_id !== 11)
+      .filter((p): p is Project & { end_date: string } => memberProjectIds.has(p.id) && !!p.end_date && p.status_id !== 11)
       .filter(p => (new Date(p.end_date).getTime() - now) / (1000 * 60 * 60 * 24) < 30)
       .map(p => ({ id: p.id, type: 'project', title: p.title, daysLeft: daysLeft(p.end_date), seen: seenIds.has(`project-${p.id}`) }))
 
@@ -139,7 +141,7 @@ function AppShell({ onLogout }: { onLogout: () => void }) {
 
     // 4. Jalons de mes projets dans < 14j
     const milestoneAlerts: AlertItem[] = milestones
-      .filter(m => memberProjectIds.has(m.project_id) && m.due_date && m.status_id !== 3 && m.status_id !== 4)
+      .filter((m): m is ProjectMilestone & { due_date: string } => memberProjectIds.has(m.project_id) && !!m.due_date && m.status_id !== 3 && m.status_id !== 4)
       .filter(m => (new Date(m.due_date).getTime() - now) / (1000 * 60 * 60 * 24) < 14)
       .map(m => {
         const proj = projects.find(p => p.id === m.project_id)
@@ -148,7 +150,7 @@ function AppShell({ onLogout }: { onLogout: () => void }) {
 
     // 5. Conventions non signées sur mes projets
     const conventionAlerts: AlertItem[] = agreements
-      .filter(a => memberProjectIds.has(a.project_id) && !a.signed_date)
+      .filter(a => memberProjectIds.has(a.project_id ?? -1) && !a.signed_date)
       .map(a => {
         const proj = projects.find(p => p.id === a.project_id)
         return { id: a.id, type: 'convention', title: proj ? `${proj.title} – ${a.title}` : a.title, daysLeft: 0, seen: seenIds.has(`convention-${a.id}`) }
@@ -191,22 +193,23 @@ function AppShell({ onLogout }: { onLogout: () => void }) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button className="rounded-md" variant="outline" size="sm">
-                <Menu /> {currentMember ? (
-                <>
+                <Menu /> 
+                {currentMember && (
+                  <>
                   <div className="flex items-center gap-2 px-2 py-2">
-                    {/* <Avatar size="sm" className="h-7 w-7 border-l border-gray">
-                      <AvatarImage src={currentMember.profile_image} />
+                    {<Avatar size="sm" className="h-7 w-7 border-l border-gray">
+                      <AvatarImage src={currentMember?.profile_image} />
                       <AvatarFallback className="text-xs" style={{ backgroundColor: currentMember.partner?.color ?? '#E7E8E2' }}>
                         {currentMember.first_name[0]}{currentMember.last_name[0]}
                       </AvatarFallback>
-                    </Avatar> */}
+                    </Avatar> }
                     <div className="flex flex-col min-w-0">
                       <span className="text-xs font-medium truncate">{currentMember.first_name} {currentMember.last_name}</span>
                     </div>
                   </div>
                   <DropdownMenuSeparator />
                 </>
-              ) : "Utilisteur non connecté"}
+                )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56" onCloseAutoFocus={() => setShowProfilePicker(false)}>
