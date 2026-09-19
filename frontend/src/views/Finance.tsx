@@ -13,8 +13,9 @@ import { Search, FileDown, Trash2, Trash, Pencil, Check, X, Plus, ChevronsUpDown
 import { motion } from 'framer-motion'
 import { exportToCsv } from '@/lib/utils'
 import SearchInput from '@/components/SearchInput'
+import { useCurrentProgram } from '@/lib/userContext'
 import {
-    getProgram, getExpanses, getBudgetCategories, getBudgetDetails, getSupliers, getProjects,
+    getExpanses, getBudgetCategories, getBudgetDetails, getSupliers, getProjects,
     getFinancialAgreements, getPartners, getStatuses, getSifacLines,
     deleteExpanse, deleteAgreement, updateExpanse, createExpanse, createSupplier, updateAgreement, addAgreement,
     createBudgetCategory, updateBudgetCategory, deleteBudgetCategory,
@@ -2410,7 +2411,7 @@ function BudgetTab({
 type ViewMode = 'depenses' | 'conventions' | 'budget'
 
 export default function Finance() {
-    const [program, setProgram] = useState<Program | null>(null)
+    const program = useCurrentProgram()
     const [expanses, setExpanses] = useState<Expanse[]>([])
     const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([])
     const [budgetDetails, setBudgetDetails] = useState<BudgetDetail[]>([])
@@ -2424,7 +2425,6 @@ export default function Finance() {
 
     useEffect(() => {
         Promise.all([
-            getProgram(),
             getExpanses(),
             getBudgetCategories(),
             getBudgetDetails(),
@@ -2433,8 +2433,7 @@ export default function Finance() {
             getFinancialAgreements(),
             getPartners(),
             getStatuses(),
-        ]).then(([prog, exp, cats, details, sups, projs, agrs, parts, stats]) => {
-            setProgram((prog as Program[])[0] ?? null)
+        ]).then(([exp, cats, details, sups, projs, agrs, parts, stats]) => {
             setExpanses(exp)
             setBudgetCategories(cats)
             setBudgetDetails(details)

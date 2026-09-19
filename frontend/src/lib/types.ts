@@ -366,8 +366,63 @@ export type ProjectAttachment = {
     url: string
 }
 
+// Le laboratoire. Le front n'en connaît que de quoi le nommer dans un
+// sélecteur : tout le cloisonnement se joue côté serveur, qui ne prend jamais
+// l'organisation du client — il la relit dans la session à chaque requête.
+export type Organization = {
+    id: number
+    name: string
+    slug: string
+}
+
+// Le rôle dans le laboratoire *actif*, et il n'en existe que deux. Il ne
+// commande qu'une chose : le droit d'inviter. Tout le reste dépend du
+// cloisonnement, pas d'un grade.
+export type OrgRole = 'admin' | 'member'
+
+// Une place réservée dans un laboratoire. Côté émetteur : ce que l'on voit dans
+// la liste des invitations en attente.
+//
+// `token` et `accept_url` n'y sont **que sur la réponse à la création** — le
+// serveur ne les rend qu'une fois, puisque c'est l'invitant qui transporte le
+// lien faute d'envoi d'email. D'où le `?` : les relire sur un élément de liste
+// est une erreur de type, pas une surprise à l'exécution.
+export type Invitation = {
+    id: number
+    email: string
+    member_id: number | null
+    program_id: number | null
+    first_name: string
+    last_name: string
+    role: OrgRole
+    organization_name: string
+    invited_by_email: string | null
+    created_at: string
+    expires_at: string
+    accepted_at: string | null
+    is_expired: boolean
+    token?: string
+    accept_url?: string
+}
+
+// Ce que l'invité voit avant de s'engager, sur une route anonyme. Volontairement
+// pauvre : quiconque tient le jeton obtient cette réponse.
+export type InvitationPreview = {
+    organization_name: string
+    email: string
+    first_name: string
+    last_name: string
+    // Décide du formulaire à afficher : « choisissez un mot de passe » si
+    // l'adresse est libre, « saisissez le vôtre » si un compte existe déjà.
+    account_exists: boolean
+    expires_at: string
+}
+
 export type Program = {
     id: number
+    // Clé de rapprochement SIFAC, et seul repère stable quand deux programmes
+    // portent des noms voisins : le sélecteur l'affiche pour cette raison.
+    pfi: string
     name: string
     description: string
     budget: number

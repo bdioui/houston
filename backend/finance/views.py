@@ -1,4 +1,4 @@
-from common.views import TenantViewSet
+from common.views import ProgramScopedViewSet, TenantViewSet
 
 from .models import (
     AgreementMember, BudgetCategory, BudgetDetail, Expanse, FinancialAgreement,
@@ -20,35 +20,35 @@ class SupplierViewSet(TenantViewSet):
         return Supplier.objects.all()
 
 
-class BudgetCategoryViewSet(TenantViewSet):
+class BudgetCategoryViewSet(ProgramScopedViewSet):
     serializer_class = BudgetCategorySerializer
 
     def get_queryset(self):
         return BudgetCategory.objects.all()
 
 
-class BudgetDetailViewSet(TenantViewSet):
+class BudgetDetailViewSet(ProgramScopedViewSet):
     serializer_class = BudgetDetailSerializer
 
     def get_queryset(self):
         return BudgetDetail.objects.all()
 
 
-class FinancialAgreementViewSet(TenantViewSet):
+class FinancialAgreementViewSet(ProgramScopedViewSet):
     serializer_class = FinancialAgreementSerializer
 
     def get_queryset(self):
         return FinancialAgreement.objects.all()
 
 
-class AgreementMemberViewSet(TenantViewSet):
+class AgreementMemberViewSet(ProgramScopedViewSet):
     serializer_class = AgreementMemberSerializer
 
     def get_queryset(self):
         return AgreementMember.objects.all()
 
 
-class ExpanseViewSet(TenantViewSet):
+class ExpanseViewSet(ProgramScopedViewSet):
     serializer_class = ExpanseSerializer
 
     def get_queryset(self):

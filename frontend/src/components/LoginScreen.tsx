@@ -4,10 +4,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { login } from '@/lib/auth'
-import type { AuthUser } from '@/lib/auth'
+import type { Session } from '@/lib/auth'
 import { ApiError } from '@/lib/client'
 
-export default function LoginScreen({ onSuccess }: { onSuccess: (user: AuthUser) => void }) {
+export default function LoginScreen({
+    onSuccess,
+    onSignup,
+}: {
+    onSuccess: (session: Session) => void
+    onSignup: () => void
+}) {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [error, setError] = useState<string | null>(null)
@@ -58,6 +64,9 @@ export default function LoginScreen({ onSuccess }: { onSuccess: (user: AuthUser)
                         {error && <p className="text-sm text-destructive">{error}</p>}
                         <Button type="submit" className="w-full" disabled={pending}>
                             {pending ? 'Connexion…' : 'Se connecter'}
+                        </Button>
+                        <Button type="button" variant="ghost" className="w-full" onClick={onSignup}>
+                            Créer un laboratoire
                         </Button>
                     </form>
                 </CardContent>

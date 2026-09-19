@@ -6,9 +6,9 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from common.tenant import get_current_org
+from common.tenant import get_current_org, get_current_program
 
-from .importer import preview, run_import
+from .importer import SifacScopeError, preview, run_import
 from .models import SifacLine
 from .parse import SifacParseError
 from .serializers import SifacLineSerializer
@@ -62,8 +62,8 @@ class SifacPreviewView(_SifacUploadView):
 
     def post(self, request):
         try:
-            return Response(preview(self.get_file(request)))
-        except SifacParseError as exc:
+            return Response(preview(self.get_file(request), get_current_program()))
+        except (SifacParseError, SifacScopeError) as exc:
             # Le fichier est en cause, pas le code : 400 et le message tel
             # quel, il est écrit pour être lu par l'utilisateur.
             raise ValidationError({"detail": str(exc)}) from exc
@@ -87,8 +87,13 @@ class SifacImportView(_SifacUploadView):
             )
 
         try:
-            summary = run_import(self.get_file(request), exercice, get_current_org())
-        except SifacParseError as exc:
+            summary = run_import(
+                self.get_file(request),
+                exercice,
+                get_current_org(),
+                get_current_program(),
+            )
+        except (SifacParseError, SifacScopeError) as exc:
             raise ValidationError({"detail": str(exc)}) from exc
 
         return Response(asdict(summary), status=status.HTTP_200_OK)

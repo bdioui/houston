@@ -1,9 +1,9 @@
 from django.db import models
 
-from common.models import TenantModel
+from common.models import ProgramModel
 
 
-class SifacLine(TenantModel):
+class SifacLine(ProgramModel):
     """Écriture brute d'un export SIFAC, telle que lue dans le XLSX.
 
     Table plate et sans clé étrangère : c'est une copie fidèle de la source,
@@ -13,6 +13,9 @@ class SifacLine(TenantModel):
     bloc par périmètre (pfi, exercice).
     """
 
+    # Doublon assumé de `program.pfi` : cette table est une copie fidèle du
+    # fichier, et le PFI y est une colonne source au même titre que les autres.
+    # C'est `program` qui fait foi pour le cloisonnement et le périmètre.
     pfi = models.CharField(max_length=50, blank=True, default="")
     # Métadonnée d'import choisie à la validation, PAS une date du fichier.
     exercice = models.IntegerField(default=0)
@@ -47,9 +50,10 @@ class SifacLine(TenantModel):
     class Meta:
         ordering = ["flux_id", "id"]
         indexes = [
-            # Le remplacement porte sur le couple (PFI, exercice) : réimporter
-            # un fichier écrase ce périmètre et rien d'autre.
-            models.Index(fields=["organization", "pfi", "exercice"]),
+            # Le remplacement porte sur le couple (programme, exercice) :
+            # réimporter un fichier écrase ce périmètre et rien d'autre. Le PFI
+            # du fichier sert à retrouver le programme, pas à filtrer.
+            models.Index(fields=["program", "exercice"]),
             # L'agrégation regroupe sur le flux seul, tous exercices confondus.
-            models.Index(fields=["organization", "flux_id"]),
+            models.Index(fields=["program", "flux_id"]),
         ]

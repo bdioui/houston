@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import {
-    getProgram, getProjects, getStatuses, getPartners, getMembers,
+    getProjects, getStatuses, getPartners, getMembers,
     getFinancialAgreements, getAllProjectMembers, getActionCardsFull, getExpanses,
     getBudgetCategories, getBudgetDetails, updateProgram,
 } from '@/lib/api'
+import { useCurrentProgram } from '@/lib/userContext'
 import { type Program, type Project, type Status, type Partner, type Member, type FinancialAgreement, type ProjectMember, type ActionCardFull, type Expanse, type BudgetCategory, type BudgetDetail } from '@/lib/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AlertTriangle, Users, Briefcase, Building2, TrendingUp, Clock, Receipt, Pencil, Check, X, NetworkIcon, InfoIcon } from 'lucide-react'
@@ -152,7 +153,11 @@ export default function Dashboard() {
     const currentYear = new Date().getFullYear()
     const [loading, setLoading] = useState(true)
 
-    const [program,        setProgram]        = useState<Program | null>(null)
+    // Copie locale, parce que `saveFeeRate` écrit le taux de frais de gestion et
+    // doit le réafficher aussitôt. L'état initial vient du contexte et non d'un
+    // appel : App remonte le tableau de bord à chaque changement de programme,
+    // donc cette copie ne peut pas survivre à celui qu'elle décrit.
+    const [program,        setProgram]        = useState<Program | null>(useCurrentProgram())
     const [projects,       setProjects]       = useState<Project[]>([])
     const [actionCards,    setActionCards]    = useState<ActionCardFull[]>([])
     const [openProject, setOpenProject]       = useState<Project | null>(null)
@@ -180,7 +185,6 @@ export default function Dashboard() {
 
     useEffect(() => {
         Promise.all([
-            getProgram(),
             getProjects(),
             getStatuses(),
             getPartners(),
@@ -191,8 +195,7 @@ export default function Dashboard() {
             getExpanses(),
             getBudgetCategories(),
             getBudgetDetails(),
-        ]).then(([prog, proj, stat, part, memb, agr, pm, ac, exp, cats, details]) => {
-            setProgram((prog as Program[])[0] ?? null)
+        ]).then(([proj, stat, part, memb, agr, pm, ac, exp, cats, details]) => {
             setProjects(proj as Project[])
             setStatuses(stat as Status[])
             setPartners(part as Partner[])
@@ -461,10 +464,16 @@ export default function Dashboard() {
                                         .map(d => d ? new Date(d).getFullYear() : '—').join(' — ')}
                                 </span>
                                 <span className="text-2XL font-medium">
-                                    {progPercent}% écoulé
-                                    {progYearsLeft && parseFloat(progYearsLeft) > 0
-                                        ? ` · ${progYearsLeft} ans restants`
-                                        : ' · Programme terminé'}
+                                    {/* Sans date de fin, il n'y a rien à conclure : un programme
+                                        qui vient d'être créé n'est pas un programme terminé. */}
+                                    {program.end_date === null
+                                        ? 'Dates non renseignées'
+                                        : <>
+                                            {progPercent}% écoulé
+                                            {progYearsLeft && parseFloat(progYearsLeft) > 0
+                                                ? ` · ${progYearsLeft} ans restants`
+                                                : ' · Programme terminé'}
+                                          </>}
                                 </span>
                                 {progDaysLeft !== null && progDaysLeft <= 365 && progDaysLeft > 0 && (
                                     <span className="text-xs text-amber-600 font-medium flex items-center gap-1">

@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils import timezone
 
-from common.models import TenantModel
+from common.models import ProgramModel, TenantModel
 from directory.models import Member
 from finance.models import FinancialAgreement
 from projects.models import Axis, Project
@@ -30,7 +30,7 @@ class Category(TenantModel):
         return self.title
 
 
-class ActionCard(TenantModel):
+class ActionCard(ProgramModel):
     owner = models.ForeignKey(
         Member, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="owned_action_cards",
@@ -59,7 +59,7 @@ class ActionCard(TenantModel):
         return self.title
 
 
-class Comment(TenantModel):
+class Comment(ProgramModel):
     owner = models.ForeignKey(
         Member, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="comments",
@@ -80,7 +80,7 @@ class Comment(TenantModel):
         ordering = ["-timestamp"]
 
 
-class ToDoList(TenantModel):
+class ToDoList(ProgramModel):
     action_card = models.ForeignKey(
         ActionCard, on_delete=models.CASCADE, related_name="todo_lists",
     )
@@ -93,7 +93,7 @@ class ToDoList(TenantModel):
         return self.title
 
 
-class ToDoItem(TenantModel):
+class ToDoItem(ProgramModel):
     # Nommé `todo_list` et non `list` pour ne pas masquer le builtin dans le
     # corps de classe. Le front voit `list_id` : c'est le sérialiseur qui traduit.
     todo_list = models.ForeignKey(
@@ -113,7 +113,7 @@ class ToDoItem(TenantModel):
         ordering = ["due_date"]
 
 
-class MemberActionCard(TenantModel):
+class MemberActionCard(ProgramModel):
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="action_card_links",
     )
@@ -134,7 +134,7 @@ class MemberActionCard(TenantModel):
         ]
 
 
-class AxisActionCard(TenantModel):
+class AxisActionCard(ProgramModel):
     axis = models.ForeignKey(
         Axis, on_delete=models.CASCADE, related_name="action_card_links",
     )
@@ -150,7 +150,7 @@ class AxisActionCard(TenantModel):
         ]
 
 
-class ProjectActionCard(TenantModel):
+class ProjectActionCard(ProgramModel):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="action_card_links",
     )
@@ -166,7 +166,7 @@ class ProjectActionCard(TenantModel):
         ]
 
 
-class AgreementActionCard(TenantModel):
+class AgreementActionCard(ProgramModel):
     financial_agreement = models.ForeignKey(
         FinancialAgreement, on_delete=models.CASCADE, related_name="action_card_links",
     )

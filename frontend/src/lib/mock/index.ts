@@ -16,6 +16,7 @@ import type {
     Formation,
     ProjectFormation,
     ProjectAttachment,
+    Organization,
     Program,
     Supplier,
     Expanse,
@@ -738,8 +739,14 @@ export const mockProjectAttachments: ProjectAttachment[] = [
     { id: 3, project_id: 2, label: 'Cahier des charges', url: 'https://drive.google.com/file/example3' },
 ]
 
+// Un seul laboratoire : le mode mock n'a pas de session, donc pas de sélecteur
+// à éprouver. Il est là pour que l'en-tête ait un nom à afficher.
+export const mockOrganizations: Organization[] = [
+    { id: 1, name: "Laboratoire de démonstration", slug: "demo" },
+]
+
 export const mockProgram: Program[] = [
-    { id: 1, name: "Iris-E", budget: 20000000, start_date: "2023-01-01", end_date: "2032-12-31", description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut varius diam quis commodo euismod. Nulla facilisi. Nulla facilisi. Vestibulum nibh turpis, viverra eget sapien sit amet, euismod venenatis neque. Nunc dictum dolor id augue varius accumsan. Integer vestibulum a urna sit amet aliquam.", logo: "", management_fee_rate: 8 }
+    { id: 1, pfi: "PFI001", name: "Iris-E", budget: 20000000, start_date: "2023-01-01", end_date: "2032-12-31", description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut varius diam quis commodo euismod. Nulla facilisi. Nulla facilisi. Vestibulum nibh turpis, viverra eget sapien sit amet, euismod venenatis neque. Nunc dictum dolor id augue varius accumsan. Integer vestibulum a urna sit amet aliquam.", logo: "", management_fee_rate: 8 }
 ]
 
 // `sifac_code` volontairement vide sur une partie des fiches : ce sont les

@@ -30,11 +30,20 @@ class GroupMemberSerializer(BaseModelSerializer):
 
 
 class ProgramSerializer(BaseModelSerializer):
+    """`pfi` est exposé : c'est la clé de rapprochement SIFAC, et l'import
+    refuse un fichier dont le PFI ne correspond pas au programme actif. Sans
+    elle côté client, l'utilisateur ne peut pas comprendre le refus.
+
+    Son unicité par organisation est une contrainte partielle (les programmes
+    sur fonds propres n'ont pas de PFI) : DRF ne sait pas en construire de
+    validateur, c'est `unique_violation_as_400` qui la rattrape en 400.
+    """
+
     class Meta:
         model = Program
         fields = [
-            "id", "name", "description", "budget", "start_date", "end_date",
-            "logo", "management_fee_rate",
+            "id", "pfi", "name", "description", "budget", "start_date",
+            "end_date", "logo", "management_fee_rate",
         ]
 
 

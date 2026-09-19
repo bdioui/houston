@@ -102,6 +102,7 @@ REST_FRAMEWORK = {
     # Par défaut DRF sérialise les DecimalField en chaîne. Tout le code Finance
     # fait de l'arithmétique directe sur `amount` : il lui faut des nombres.
     "COERCE_DECIMAL_TO_STRING": False,
+    "EXCEPTION_HANDLER": "common.exceptions.exception_handler",
 }
 
 SESSION_COOKIE_HTTPONLY = True

@@ -10,7 +10,7 @@ import {
     mockProjectPartners, mockProjectMilestones,
     mockTimeEntry,
     mockFormations, mockProjectFormations, mockProjectAttachments,
-    mockProgram, mockExpanses, mockSuppliers, mockSifacLines,
+    mockOrganizations, mockProgram, mockExpanses, mockSuppliers, mockSifacLines,
     mockPublications, mockPublicationMembers,
 } from '@/lib/mock'
 import type {
@@ -22,6 +22,10 @@ import type {
     Group, GroupMember, Comment, CommentFull, ProjectMember, AgreementMember,
     KpiEntry, ProjectPartner, ProjectMilestone,
     TimeEntry, Formation, ProjectFormation, ProjectAttachment,
+    Organization,
+    Invitation,
+    InvitationPreview,
+    OrgRole,
     Program,
     Expanse,
     SifacLine,
@@ -32,8 +36,91 @@ import type {
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
+// --- Cloisonnement ---
+// Les laboratoires du titulaire, pas ceux de l'installation : le backend réduit
+// la liste à ses rattachements. C'est aussi la seule collection qui reste
+// joignable quand aucun laboratoire n'est actif, sans quoi un compte affecté à
+// plusieurs n'aurait aucun moyen d'en choisir un.
+export async function getOrganizations(): Promise<Organization[]> {
+    return USE_MOCK ? mockOrganizations : http.get<Organization[]>('/organizations/')
+}
+
+// Même forme que selectProgram, et pour les mêmes raisons — sauf que celui-ci
+// efface aussi le programme côté serveur : il appartenait au laboratoire qu'on
+// quitte. D'où l'absence de valeur de retour utile au-delà du laboratoire lui-
+// même : le programme qui suivra, c'est fetchMe() qui l'apprendra.
+export async function selectOrganization(id: number): Promise<Organization> {
+    if (USE_MOCK) return mockOrganizations.find(o => o.id === id) as Organization
+    return http.post<Organization>(`/organizations/${id}/select/`)
+}
+
+// --- Invitations ---
+// Le seul chemin pour rejoindre un laboratoire existant ; l'inscription, elle,
+// en crée toujours un neuf.
+//
+// Deux espaces de noms, et la frontière n'est pas cosmétique. Émettre et
+// révoquer sont des gestes du laboratoire, donc cloisonnés comme le reste :
+// `/invitations/`. Consulter et accepter se font sans laboratoire actif et
+// souvent sans compte, exactement comme une connexion : `/auth/invitations/`.
+// Le jeton y tient lieu d'identifiant — on ne peut pas offrir un `id` à
+// quelqu'un qui ne voit encore aucune collection.
+//
+// Aucune branche mock ici, et c'est délibéré : en mode fictif `fetchMe()` rend
+// un utilisateur d'emblée, il n'y a ni compte à créer ni laboratoire à
+// rejoindre. Ces fonctions restent inatteignables, comme login() et signup().
+export async function getInvitations(): Promise<Invitation[]> {
+    return http.get<Invitation[]>('/invitations/')
+}
+
+// Le retour porte `token` et `accept_url`, que la liste ne redonnera jamais :
+// l'appelant doit les présenter tout de suite, sans quoi l'invitation est créée
+// et son lien perdu.
+//
+// `program_id` est obligatoire ici alors que la colonne est nullable : le
+// sérialiseur l'exige, parce qu'une invitation sans affectation produit un
+// compte rattaché au laboratoire et bloqué sur un sélecteur de programme vide.
+// `member_id` reste facultatif : sans lui, la fiche annuaire naît à
+// l'acceptation.
+export async function createInvitation(payload: {
+    email: string
+    program_id: number
+    member_id?: number | null
+    role?: OrgRole
+    first_name?: string
+    last_name?: string
+}): Promise<Invitation> {
+    return http.post<Invitation>('/invitations/', payload)
+}
+
+export async function revokeInvitation(id: number): Promise<void> {
+    return http.del(`/invitations/${id}/`)
+}
+
+export async function fetchInvitation(token: string): Promise<InvitationPreview> {
+    return http.get<InvitationPreview>(`/auth/invitations/${token}/`)
+}
+
+// Le mot de passe vaut création de compte si l'adresse est libre,
+// authentification sinon, et n'est pas demandé du tout pour une session déjà
+// ouverte au bon nom. C'est le serveur qui tranche, pas l'appelant.
+export async function acceptInvitation(
+    token: string,
+    payload: { password?: string; first_name?: string; last_name?: string },
+): Promise<void> {
+    await http.post(`/auth/invitations/${token}/accept/`, payload)
+}
+
 // --- Tables de référence ---
 export async function getProgram(): Promise<Program[]> { return USE_MOCK ? mockProgram : http.get<Program[]>('/programs/') }
+
+// Le programme actif vit dans la session Django, pas dans l'état React : la
+// sélection est donc une écriture, et non un simple changement d'écran. Le
+// backend rend le programme choisi, ce qui évite d'aller le rechercher dans la
+// liste — et surtout de faire confiance à une liste que la réponse contredirait.
+export async function selectProgram(id: number): Promise<Program> {
+    if (USE_MOCK) return mockProgram.find(p => p.id === id) as Program
+    return http.post<Program>(`/programs/${id}/select/`)
+}
 
 export async function updateProgram(id: number, patch: Partial<Omit<Program, 'id'>>): Promise<void> {
     if (USE_MOCK) {

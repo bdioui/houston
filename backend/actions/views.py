@@ -1,4 +1,4 @@
-from common.views import TenantViewSet
+from common.views import ProgramScopedViewSet, TenantViewSet
 
 from .models import (
     ActionCard, AgreementActionCard, AxisActionCard, Category, Comment,
@@ -19,56 +19,56 @@ class CategoryViewSet(TenantViewSet):
         return Category.objects.all()
 
 
-class ActionCardViewSet(TenantViewSet):
+class ActionCardViewSet(ProgramScopedViewSet):
     serializer_class = ActionCardSerializer
 
     def get_queryset(self):
         return ActionCard.objects.all()
 
 
-class CommentViewSet(TenantViewSet):
+class CommentViewSet(ProgramScopedViewSet):
     serializer_class = CommentSerializer
 
     def get_queryset(self):
         return Comment.objects.all()
 
 
-class ToDoListViewSet(TenantViewSet):
+class ToDoListViewSet(ProgramScopedViewSet):
     serializer_class = ToDoListSerializer
 
     def get_queryset(self):
         return ToDoList.objects.all()
 
 
-class ToDoItemViewSet(TenantViewSet):
+class ToDoItemViewSet(ProgramScopedViewSet):
     serializer_class = ToDoItemSerializer
 
     def get_queryset(self):
         return ToDoItem.objects.all()
 
 
-class MemberActionCardViewSet(TenantViewSet):
+class MemberActionCardViewSet(ProgramScopedViewSet):
     serializer_class = MemberActionCardSerializer
 
     def get_queryset(self):
         return MemberActionCard.objects.all()
 
 
-class AxisActionCardViewSet(TenantViewSet):
+class AxisActionCardViewSet(ProgramScopedViewSet):
     serializer_class = AxisActionCardSerializer
 
     def get_queryset(self):
         return AxisActionCard.objects.all()
 
 
-class ProjectActionCardViewSet(TenantViewSet):
+class ProjectActionCardViewSet(ProgramScopedViewSet):
     serializer_class = ProjectActionCardSerializer
 
     def get_queryset(self):
         return ProjectActionCard.objects.all()
 
 
-class AgreementActionCardViewSet(TenantViewSet):
+class AgreementActionCardViewSet(ProgramScopedViewSet):
     serializer_class = AgreementActionCardSerializer
 
     def get_queryset(self):

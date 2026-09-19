@@ -8,7 +8,11 @@ en tâche de fond change la forme de l'API (identifiant de tâche, endpoint de
 statut, polling côté front) et n'apporte rien tant qu'un import tient dans le
 temps d'une requête. `run_import` est déjà écrite pour être appelée depuis une
 tâche : elle ne touche ni `request` ni le ContextVar, elle reçoit son
-organisation en argument.
+organisation et son programme en arguments.
+
+ATTENTION : les managers, eux, lisent bien le ContextVar. Appelée depuis une
+tâche de fond, cette chaîne exige donc que `set_current_org` et
+`set_current_program` aient été posés — passer les arguments ne suffit pas.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from dataclasses import dataclass
 
 from django.db import transaction
 
+from common.tenant import ProgramContextRequired
 from finance.models import Expanse, Supplier
 
 from .aggregate import FluxAggregate, aggregate_by_flux
@@ -24,8 +29,8 @@ from .models import SifacLine
 from .parse import SifacParseError, parse_sifac_export
 from .reconcile import ORPHAN_STATUS, SIFAC_OWNED_FIELDS, reconcile
 
-# Colonnes de SifacLine alimentées par le parseur. `organization` s'y ajoute à
-# l'insertion, `id` est attribué par la base.
+# Colonnes de SifacLine alimentées par le parseur. `organization` et `program`
+# s'y ajoutent à l'insertion, `id` est attribué par la base.
 SIFAC_LINE_FIELDS = (
     "pfi", "exercice", "flux_id", "flux_label", "rubrique", "supplier_name",
     "supplier_code", "account", "account_label", "engagement_date", "csf_date",
@@ -40,6 +45,46 @@ _UPDATE_FIELDS = sorted(
 )
 
 
+class SifacScopeError(ValueError):
+    """Le fichier ne porte pas sur le programme dans lequel on travaille.
+
+    Distincte de SifacParseError : le fichier est parfaitement lisible, c'est
+    la destination qui ne va pas. Les deux remontent en 400, mais les
+    confondre ferait chercher un défaut de format là où il n'y en a pas.
+    """
+
+
+def _check_scope(pfi: str, program) -> None:
+    """Le programme actif commande, le fichier doit s'y conformer.
+
+    L'inverse — déduire le programme du PFI lu dans le fichier — serait plus
+    souple et c'est justement le problème : téléverser le mauvais export
+    écraserait un périmètre que l'utilisateur ne regarde même pas. `run_import`
+    commence par un DELETE ; une erreur de fichier doit s'arrêter ici, pas se
+    découvrir après coup.
+    """
+    if program is None:
+        # Le parcours d'import ne touche un ProgramModel qu'après le parsing :
+        # sans ce garde, l'absence de programme sortirait en AttributeError
+        # plutôt qu'en 409.
+        raise ProgramContextRequired("Import SIFAC demandé hors contexte programme.")
+
+    if program.pfi == pfi:
+        return
+
+    if not program.pfi:
+        raise SifacScopeError(
+            f"Le programme « {program.name} » ne porte aucun PFI : aucun export "
+            "SIFAC ne peut lui être rattaché."
+        )
+
+    raise SifacScopeError(
+        f"Ce fichier porte le PFI {pfi}, alors que le programme actif "
+        f"« {program.name} » porte {program.pfi}. Changez de programme actif, "
+        "ou de fichier."
+    )
+
+
 @dataclass
 class ImportSummary:
     pfi: str
@@ -51,14 +96,19 @@ class ImportSummary:
     orphaned: int
 
 
-def preview(source) -> dict:
+def preview(source, program) -> dict:
     """Premier temps : on lit le fichier sans rien écrire.
 
     L'exercice rendu n'est qu'une proposition — il n'existe nulle part dans
     l'export et conditionne le périmètre qui sera écrasé, donc il doit passer
     par l'utilisateur.
+
+    Le contrôle de périmètre est refait ici alors que `run_import` le refera :
+    c'est l'écran de confirmation qui doit annoncer l'erreur de fichier, pas la
+    réponse au clic qui valide l'écrasement.
     """
     pfi, exercice, rows = parse_sifac_export(source)
+    _check_scope(pfi, program)
     return {
         "pfi": pfi,
         "exercice": exercice,
@@ -109,7 +159,7 @@ def _resolve_suppliers(
 
 
 @transaction.atomic
-def run_import(source, exercice: int, organization) -> ImportSummary:
+def run_import(source, exercice: int, organization, program) -> ImportSummary:
     """Second temps : on écrit.
 
     Tout se joue dans une seule transaction. Le remplacement de périmètre
@@ -117,6 +167,7 @@ def run_import(source, exercice: int, organization) -> ImportSummary:
     l'exercice vidé et l'utilisateur sans recours.
     """
     pfi, _suggested, rows = parse_sifac_export(source)
+    _check_scope(pfi, program)
 
     # L'exercice confirmé peut différer de celui proposé : les lignes sont
     # réestampillées avant remplacement.
@@ -133,15 +184,22 @@ def run_import(source, exercice: int, organization) -> ImportSummary:
             "périmètre inchangé."
         )
 
-    # Le remplacement porte sur le couple (PFI, exercice) et rien d'autre :
+    # Le remplacement porte sur le couple (programme, exercice) et rien d'autre :
     # l'export est un instantané complet de ce périmètre, pas un différentiel.
-    SifacLine.objects.filter(pfi=pfi, exercice=exercice).delete()
+    # Le programme n'apparaît pas dans le filtre parce que `objects` l'applique
+    # déjà — et c'est mieux ainsi : filtrer sur `pfi`, colonne recopiée du
+    # fichier, ferait dépendre un DELETE d'une donnée non contrainte.
+    SifacLine.objects.filter(exercice=exercice).delete()
     SifacLine.objects.bulk_create([
-        SifacLine(organization=organization, **{f: r[f] for f in SIFAC_LINE_FIELDS})
+        SifacLine(
+            organization=organization,
+            program=program,
+            **{f: r[f] for f in SIFAC_LINE_FIELDS},
+        )
         for r in rows
     ])
 
-    # On réagrège sur la table entière, pas sur le seul périmètre importé : un
+    # On réagrège sur tout le programme, pas sur le seul périmètre importé : un
     # flux engagé en 2025 et reporté en 2026 a ses lignes réparties sur deux
     # exercices et doit rester une dépense unique.
     all_lines = list(
@@ -157,7 +215,8 @@ def run_import(source, exercice: int, organization) -> ImportSummary:
 
     if plan.to_create:
         Expanse.objects.bulk_create([
-            Expanse(organization=organization, **data) for data in plan.to_create
+            Expanse(organization=organization, program=program, **data)
+            for data in plan.to_create
         ])
 
     if plan.to_update:

@@ -10,16 +10,20 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import {ActionCardViewerSheet, ProjectViewerSheet} from './components/viewers'
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Menu, Download, RefreshCw, UserCircle, LogOut, Bell } from 'lucide-react'
-import { type MemberFull, type Project, type ProjectMember, type ActionCardFull, type Comment, type FinancialAgreement, type ProjectMilestone, type Expanse, type MemberActionCard } from '@/lib/types'
-import { getMembersFull, getProjects, getActionCardsFull, getAllProjectMembers, getAllMemberActionCards, getComments, getFinancialAgreements, getAllProjectMilestones, getExpanses } from '@/lib/api'
-import { UserContext } from '@/lib/userContext'
+import { Menu, Download, RefreshCw, LogOut, Bell, Check, ChevronDown, Building2, UserPlus } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { type MemberFull, type Project, type ProjectMember, type ActionCardFull, type Comment, type FinancialAgreement, type ProjectMilestone, type Expanse, type MemberActionCard, type Organization, type OrgRole, type Program } from '@/lib/types'
+import { getMembersFull, getProjects, getActionCardsFull, getAllProjectMembers, getAllMemberActionCards, getComments, getFinancialAgreements, getAllProjectMilestones, getExpanses, getOrganizations, selectOrganization, getProgram, selectProgram } from '@/lib/api'
+import { UserContext, ProgramContext } from '@/lib/userContext'
 import { Toaster } from 'sonner'
 import ExportModal from '@/components/ExportModal'
+import InvitationsModal from '@/components/InvitationsModal'
 import LoginScreen from '@/components/LoginScreen'
-import { fetchMe, logout as apiLogout, type AuthUser } from '@/lib/auth'
+import SignupScreen from '@/components/SignupScreen'
+import InvitationScreen from '@/components/InvitationScreen'
+import { fetchMe, logout as apiLogout, type Session } from '@/lib/auth'
+import { ApiError } from '@/lib/client'
 
-const STORAGE_KEY = 'grist_current_member_id'
 
 type AlertItem = {
   type: string,
@@ -29,33 +33,298 @@ type AlertItem = {
   id: number,
 }
 
+// La seule URL que l'application reconnaisse, et elle n'introduit pas de
+// routeur : un lien d'invitation est transporté à la main par l'invitant, il
+// doit survivre à un copier-coller dans un message. C'est ce qui le distingue
+// de l'inscription, à laquelle on n'arrive que depuis l'écran de connexion.
+//
+// Le jeton n'est lu qu'au démarrage : sans navigation, le chemin ne change plus
+// ensuite — et l'acceptation le réécrit elle-même en `/`.
+function invitationToken(): string | null {
+  return window.location.pathname.match(/^\/invitation\/([^/]+)\/?$/)?.[1] ?? null
+}
+
 // Porte d'entrée. AppShell n'est monté qu'une fois la session établie : ses
 // appels d'API partent tous avec IsAuthenticated satisfait, et son useEffect de
 // chargement — qui n'a pas de .catch() — ne peut plus donner un écran blanc.
 export default function App() {
-  const [user, setUser] = useState<AuthUser | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
   const [checking, setChecking] = useState(true)
+  const [signingUp, setSigningUp] = useState(false)
+  const [invitation, setInvitation] = useState<string | null>(invitationToken)
 
   useEffect(() => {
     fetchMe()
-      .then(setUser)
-      .catch(() => setUser(null))
+      .then(setSession)
+      .catch(() => setSession(null))
       .finally(() => setChecking(false))
   }, [])
 
+  function chooseProgram(program: Program) {
+    setSession(s => (s ? { ...s, program } : s))
+  }
+
+  // Contrairement au programme, changer de laboratoire ne se résout pas
+  // localement : la fiche annuaire du titulaire en dépend, et le serveur vient
+  // d'effacer le programme. Seul fetchMe() sait ce que devient le contexte,
+  // d'où l'aller-retour plutôt qu'un setSession optimiste.
+  async function chooseOrganization(id: number) {
+    await selectOrganization(id)
+    setSession(await fetchMe())
+  }
+
+  const onLogout = () => apiLogout().then(() => setSession(null))
+
+  // Rejoindre un laboratoire est une invitation acceptée, donc un changement de
+  // contexte : la session qui revient n'est pas celle qui était en place, et la
+  // fiche annuaire du titulaire a changé avec elle.
+  function accepted(next: Session) {
+    // L'URL est consommée en même temps que l'invitation : rechargée, elle
+    // rouvrirait un écran qui répondrait 404, le jeton étant désormais accepté.
+    window.history.replaceState(null, '', '/')
+    setInvitation(null)
+    setSession(next)
+  }
+
   if (checking) return null
-  if (!user) return <LoginScreen onSuccess={setUser} />
+  // Avant les branches de session, et pas après : le lien s'ouvre aussi bien
+  // sans compte qu'avec une session déjà établie ailleurs, et c'est l'écran
+  // lui-même qui distingue les deux — le serveur ne demande un mot de passe
+  // qu'au premier cas.
+  if (invitation) {
+    return <InvitationScreen token={invitation} session={session} onAccepted={accepted} />
+  }
+  // Une bascule d'écran et non une route : l'application n'a pas de routeur, et
+  // l'inscription n'a pas d'URL à partager — on n'y arrive que d'ici.
+  if (!session) {
+    return signingUp
+      ? <SignupScreen onSuccess={setSession} onCancel={() => setSigningUp(false)} />
+      : <LoginScreen onSuccess={setSession} onSignup={() => setSigningUp(true)} />
+  }
+
+  // Les deux choix sont bloquants, et dans cet ordre : sans laboratoire actif
+  // même la liste des programmes est inaccessible, puisque Program est
+  // cloisonné par l'organisation. Les proposer ensemble n'aurait pas de sens.
+  if (!session.organization) return <OrganizationPicker onChoose={chooseOrganization} onLogout={onLogout} />
+  if (!session.program) return <ProgramPicker onChoose={chooseProgram} onLogout={onLogout} />
+
   return <AppShell
-            user={user}
-            onLogout={() => apiLogout().then(() => setUser(null))}
+            // Remonte tout à chaque bascule, sur les deux axes. Les données
+            // déjà chargées appartiennent au contexte qu'on quitte ; les garder
+            // afficherait les projets de l'un sous le budget de l'autre.
+            key={`${session.organization.id}:${session.program.id}`}
+            memberId={session.member_id}
+            organization={session.organization}
+            program={session.program}
+            orgRole={session.org_role}
+            onSelectProgram={chooseProgram}
+            onSelectOrganization={chooseOrganization}
+            onLogout={onLogout}
           />
 }
 
-function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
+// Premier des deux écrans de contexte, et le seul que voit un compte rattaché à
+// plusieurs laboratoires. Un seul rattachement — le cas courant — et le
+// middleware l'aura déjà sélectionné : cet écran ne s'affiche alors jamais.
+function OrganizationPicker({ onChoose, onLogout }: { onChoose: (id: number) => Promise<void>; onLogout: () => void }) {
+  const [orgs, setOrgs] = useState<Organization[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState<number | null>(null)
+
+  useEffect(() => {
+    getOrganizations()
+      .then(setOrgs)
+      .catch(() => { setOrgs([]); setError('Liste des laboratoires indisponible.') })
+  }, [])
+
+  async function choose(o: Organization) {
+    setPending(o.id)
+    try {
+      await onChoose(o.id)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Sélection impossible.')
+      setPending(null)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Choisir un laboratoire</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {orgs === null && <p className="text-sm text-muted-foreground">Chargement…</p>}
+          {orgs?.length === 0 && !error && (
+            <p className="text-sm text-muted-foreground">
+              Ce compte n'est rattaché à aucun laboratoire. Demandez une
+              invitation à l'un de ses administrateurs.
+            </p>
+          )}
+          {orgs?.map(o => (
+            <Button
+              key={o.id}
+              variant="outline"
+              className="w-full justify-start"
+              disabled={pending !== null}
+              onClick={() => choose(o)}
+            >
+              <span className="truncate">{o.name}</span>
+            </Button>
+          ))}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button variant="ghost" size="sm" className="w-full" onClick={onLogout}>
+            <LogOut /> Se déconnecter
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// Second écran de contexte, dans le laboratoire qui vient d'être retenu.
+// N'apparaît que si le backend n'a pas pu trancher seul — c'est-à-dire dès
+// qu'un compte y est affecté à plus d'un programme. Un seul, et le middleware
+// l'aura déjà sélectionné : cet écran ne s'affiche jamais dans ce cas.
+function ProgramPicker({ onChoose, onLogout }: { onChoose: (p: Program) => void; onLogout: () => void }) {
+  const [programs, setPrograms] = useState<Program[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState<number | null>(null)
+
+  useEffect(() => {
+    getProgram()
+      .then(setPrograms)
+      .catch(() => { setPrograms([]); setError('Liste des programmes indisponible.') })
+  }, [])
+
+  async function choose(p: Program) {
+    setPending(p.id)
+    try {
+      // Le programme rendu par le serveur, pas celui de la liste : c'est la
+      // réponse qui fait foi sur ce qui vient d'être écrit en session.
+      onChoose(await selectProgram(p.id))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Sélection impossible.')
+      setPending(null)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Choisir un programme</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {programs === null && <p className="text-sm text-muted-foreground">Chargement…</p>}
+          {programs?.length === 0 && !error && (
+            <p className="text-sm text-muted-foreground">
+              Aucun programme ne vous est affecté. Demandez votre rattachement à
+              votre administrateur.
+            </p>
+          )}
+          {programs?.map(p => (
+            <Button
+              key={p.id}
+              variant="outline"
+              className="w-full justify-between"
+              disabled={pending !== null}
+              onClick={() => choose(p)}
+            >
+              <span className="truncate">{p.name}</span>
+              <span className="text-xs text-muted-foreground">{p.pfi || '—'}</span>
+            </Button>
+          ))}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button variant="ghost" size="sm" className="w-full" onClick={onLogout}>
+            <LogOut /> Se déconnecter
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// Bascule de laboratoire, affichée seulement à partir de deux rattachements.
+// Contrairement au programme, le laboratoire ne change pour presque personne :
+// le rappeler en permanence encombrerait l'en-tête sans rien apprendre.
+//
+// La bascule passe par App et non par un setSession local : elle change la
+// fiche annuaire du titulaire et efface le programme côté serveur, donc seul un
+// fetchMe() sait dire ce que devient le contexte.
+function OrganizationSwitcher({ organization, onSelect }: { organization: Organization; onSelect: (id: number) => Promise<void> }) {
+  const [orgs, setOrgs] = useState<Organization[]>([])
+
+  useEffect(() => {
+    getOrganizations().then(setOrgs).catch(() => setOrgs([]))
+  }, [])
+
+  if (orgs.length < 2) return null
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button className="rounded-md max-w-48" variant="ghost" size="sm">
+          <Building2 />
+          <span className="truncate">{organization.name}</span>
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        {orgs.map(o => (
+          <DropdownMenuItem
+            key={o.id}
+            className="flex items-center gap-2"
+            onClick={() => { if (o.id !== organization.id) onSelect(o.id) }}
+          >
+            {o.id === organization.id ? <Check className="h-3.5 w-3.5" /> : <span className="w-3.5" />}
+            <span className="flex-1 truncate text-xs">{o.name}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// Bascule en cours de session. Toujours affiché, même sur un programme unique :
+// il sert alors de rappel du contexte de travail, qui n'est visible nulle part
+// ailleurs hors du tableau de bord.
+function ProgramSwitcher({ program, onSelect }: { program: Program; onSelect: (p: Program) => void }) {
+  const [programs, setPrograms] = useState<Program[]>([])
+
+  useEffect(() => {
+    getProgram().then(setPrograms).catch(() => setPrograms([]))
+  }, [])
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button className="rounded-md max-w-56" variant="outline" size="sm">
+          <span className="truncate">{program.name}</span>
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        {programs.map(p => (
+          <DropdownMenuItem
+            key={p.id}
+            className="flex items-center gap-2"
+            onClick={() => { if (p.id !== program.id) selectProgram(p.id).then(onSelect) }}
+          >
+            {p.id === program.id ? <Check className="h-3.5 w-3.5" /> : <span className="w-3.5" />}
+            <span className="flex-1 truncate text-xs">{p.name}</span>
+            <span className="text-[10px] text-muted-foreground">{p.pfi}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function AppShell({memberId, organization, program, orgRole, onSelectProgram, onSelectOrganization, onLogout}: {memberId: number | null; organization: Organization; program: Program; orgRole: OrgRole | null; onSelectProgram: (p: Program) => void; onSelectOrganization: (id: number) => Promise<void>; onLogout: () => void;}) {
 
   const [currentView, setCurrentView] = useState('dashboard')
   const [currentMember, setCurrentMember] = useState<MemberFull | null>(null)
-  const [allMembers, setAllMembers] = useState<MemberFull[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([])
   const [actions, setActions] = useState<ActionCardFull[]>([])
@@ -68,9 +337,8 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
   const [expanses, setExpanses] = useState<Expanse[]>([])
   const [alerts, setAlerts] = useState<AlertItem[]>([])
   const [showExport, setShowExport] = useState(false)
+  const [showInvitations, setShowInvitations] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [showProfilePicker, setShowProfilePicker] = useState(false)
-  const [profileSearch, setProfileSearch] = useState('')
 
   useEffect(() => {
     Promise.all([
@@ -78,7 +346,6 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
       getAllProjectMembers(), getAllMemberActionCards(),
       getComments(), getFinancialAgreements(), getAllProjectMilestones(), getExpanses(),
     ]).then(([members, projects, actions, projectsMembers, actionMembers, comments, agreements, milestones, expanses]) => {
-      setAllMembers(members)
       setProjects(projects)
       setProjectMembers(projectsMembers)
       setActions(actions)
@@ -87,10 +354,12 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
       setAgreements(agreements)
       setMilestones(milestones)
       setExpanses(expanses)
-      if (user) {
-        const match = members.find(m => m.id === Number(user.id))
-        setCurrentMember(match ?? null)
-      }
+      // Sur la fiche du contexte et non sur `user.id` : deux tables, deux
+      // séquences. L'égalité tenait par hasard sur les comptes créés à la main,
+      // et tombait dès le premier compte issu de l'inscription — sans fiche
+      // retrouvée, l'interface perdait l'avatar, le nom et les alertes. Elle
+      // change aussi avec le laboratoire, d'où le remontage sur `key`.
+      setCurrentMember(members.find(m => m.id === memberId) ?? null)
     }).catch(err => {
       // Le portage sur Django est en cours : tant que les modèles manquants ne
       // sont pas écrits, ce Promise.all échoue en bloc. Sans ce catch, l'échec
@@ -174,19 +443,9 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
     }
   }, [currentMember, actions, comments, milestones, agreements, expanses])
 
-  function selectMember(member: MemberFull) {
-    setCurrentMember(member)
-    localStorage.setItem(STORAGE_KEY, String(member.id))
-    setShowProfilePicker(false)
-  }
-
-  function clearMember() {
-    setCurrentMember(null)
-    localStorage.removeItem(STORAGE_KEY)
-  }
-
   return (
     <UserContext.Provider value={currentMember}>
+    <ProgramContext.Provider value={program}>
     <div className="h-screen flex flex-col overflow-hidden bg-gray-50">
       <nav className="flex justify-between align-center p-4 gap-4 shrink-0">
         <div className='flex gap-2 items-center'>
@@ -212,7 +471,7 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
                 )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56" onCloseAutoFocus={() => setShowProfilePicker(false)}>
+            <DropdownMenuContent align="start" className="w-56">
 
               {/* Utilisateur connecté */}
               {currentMember ? (
@@ -246,13 +505,26 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
                 <Download /> Exporter les données
               </DropdownMenuItem>
 
+              {/* Le rôle vaut pour le laboratoire actif : la même personne peut
+                  voir cette entrée ici et pas dans le laboratoire suivant.
+                  L'absence n'est qu'un affichage — c'est IsOrganizationAdmin
+                  qui refuse, à chaque requête. */}
+              {orgRole === 'admin' && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setShowInvitations(true)}>
+                    <UserPlus /> Inviter au laboratoire
+                  </DropdownMenuItem>
+                </>
+              )}
+
             </DropdownMenuContent>
           </DropdownMenu>
           
           {/* Boutons alertes */}
           {currentMember ? (
             <DropdownMenu>
-              <DropdownMenuTrigger>
+              <DropdownMenuTrigger asChild>
                 <Button className="relative rounded-md px-3 pr-4" variant="outline" size="sm">
                   <Bell />
                   {alerts.some(a => !a.seen) && <div className="rounded-full bg-red-500 h-2 w-2 absolute top-1 right-1" />}
@@ -329,7 +601,10 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
           ): (
             ""
           )}
-          
+
+          <OrganizationSwitcher organization={organization} onSelect={onSelectOrganization} />
+          <ProgramSwitcher program={program} onSelect={onSelectProgram} />
+
         </div>
 
         <div className="bg-gray-200 rounded-full border p-1 flex relative">
@@ -364,6 +639,7 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
       </main>
 
       <ExportModal open={showExport} onClose={() => setShowExport(false)} />
+      <InvitationsModal open={showInvitations} onClose={() => setShowInvitations(false)} />
     </div>
     {openCard && (
                 <ActionCardViewerSheet
@@ -384,6 +660,7 @@ function AppShell({user, onLogout}: {user: AuthUser; onLogout: () => void;}) {
                 />
             )}
     <Toaster position="bottom-right" richColors closeButton />
+    </ProgramContext.Provider>
     </UserContext.Provider>
   )
 }

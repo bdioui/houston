@@ -1,8 +1,8 @@
 from django.db import models
-from common.models import TenantModel
+from common.models import ProgramModel, TenantModel
 from directory.models import Formation, Lab, Member
 
-class Axis(TenantModel): 
+class Axis(ProgramModel):
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
 
@@ -12,7 +12,7 @@ class Axis(TenantModel):
     def __str__(self):
         return self.name
 
-class Group(TenantModel):
+class Group(ProgramModel):
     name = models.CharField(max_length=200)
     owner = models.ForeignKey(
         Member, 
@@ -27,7 +27,7 @@ class Group(TenantModel):
     def __str__(self):
         return self.name
 
-class GroupMember(TenantModel):
+class GroupMember(ProgramModel):
     member = models.ForeignKey(
         Member, 
         on_delete=models.CASCADE, 
@@ -46,13 +46,21 @@ class GroupMember(TenantModel):
 
 
 class Program(TenantModel):
-    """Le programme financeur qui chapeaute le laboratoire.
+    """Le périmètre financé, et le second axe de cloisonnement.
 
-    Table à une seule ligne en pratique : Dashboard.tsx prend `[0]`. Elle reste
-    une table plutôt qu'un réglage parce qu'elle porte un budget et des dates,
-    et qu'un labo pourrait en suivre deux.
+    Un laboratoire en suit plusieurs ; une équipe projet n'accède qu'au sien.
+    Reste un TenantModel et non un ProgramModel : c'est la table qui porte le
+    découpage, elle ne peut pas être découpée par elle-même — exactement la
+    raison pour laquelle Organization n'hérite pas de TenantModel.
+
+    Le PFI est sa clé côté SIFAC : un PFI, un programme. C'est par lui que
+    l'import rattache ses écritures, puisque le fichier ne connaît rien d'autre.
     """
 
+    # Vide tant que le programme n'a pas de contrepartie comptable : un labo
+    # peut suivre une opération sur fonds propres. D'où la contrainte partielle,
+    # sur le modèle de Supplier.sifac_code.
+    pfi = models.CharField(max_length=50, blank=True, default="")
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, default="")
     budget = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -67,12 +75,47 @@ class Program(TenantModel):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "pfi"],
+                condition=models.Q(pfi__gt=""),
+                name="uniq_program_pfi_per_org",
+            )
+        ]
 
     def __str__(self):
         return self.name
 
 
-class Kpi(TenantModel):
+class ProgramMember(TenantModel):
+    """Affectation d'un membre à un programme.
+
+    TenantModel et non ProgramModel, délibérément : c'est la table que le
+    middleware interroge pour savoir à quels programmes un utilisateur a droit.
+    La cloisonner par programme demanderait d'en avoir déjà un — l'affectation
+    ne serait lisible que par qui la connaît déjà.
+
+    Un membre en porte plusieurs : c'est ce qui rend le programme actif une
+    sélection et non une déduction.
+    """
+
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="program_links",
+    )
+    program = models.ForeignKey(
+        Program, on_delete=models.CASCADE, related_name="member_links",
+    )
+    role = models.CharField(max_length=100, blank=True, default="")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["program", "member"], name="uniq_program_member"
+            )
+        ]
+
+
+class Kpi(ProgramModel):
     label = models.CharField(max_length=255)
     unit = models.CharField(max_length=50, blank=True, default="")
     definition = models.TextField(blank=True, default="")
@@ -85,7 +128,7 @@ class Kpi(TenantModel):
         return self.label
 
 
-class ProjectCall(TenantModel):
+class ProjectCall(ProgramModel):
     axis = models.ForeignKey(
         Axis, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="project_calls",
@@ -107,7 +150,7 @@ class ProjectCall(TenantModel):
         return self.title
 
 
-class Project(TenantModel):
+class Project(ProgramModel):
     project_call = models.ForeignKey(
         ProjectCall, on_delete=models.CASCADE, related_name="projects",
     )
@@ -128,7 +171,7 @@ class Project(TenantModel):
         return self.title
 
 
-class ProjectPartner(TenantModel):
+class ProjectPartner(ProgramModel):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="partner_links",
     )
@@ -147,7 +190,7 @@ class ProjectPartner(TenantModel):
         ]
 
 
-class ProjectMilestone(TenantModel):
+class ProjectMilestone(ProgramModel):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="milestones",
     )
@@ -166,7 +209,7 @@ class ProjectMilestone(TenantModel):
         return self.title
 
 
-class ProjectMember(TenantModel):
+class ProjectMember(ProgramModel):
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="project_links",
     )
@@ -187,7 +230,7 @@ class ProjectMember(TenantModel):
         ]
 
 
-class TimeEntry(TenantModel):
+class TimeEntry(ProgramModel):
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="time_entries",
     )
@@ -202,7 +245,7 @@ class TimeEntry(TenantModel):
         ordering = ["-start_date"]
 
 
-class KpiEntry(TenantModel):
+class KpiEntry(ProgramModel):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="kpi_entries",
     )
@@ -254,7 +297,7 @@ class MobilityGrant(TenantModel):
         ordering = ["-start_date"]
 
 
-class ProjectFormation(TenantModel):
+class ProjectFormation(ProgramModel):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="formation_links",
     )
@@ -270,7 +313,7 @@ class ProjectFormation(TenantModel):
         ]
 
 
-class ProjectAttachment(TenantModel):
+class ProjectAttachment(ProgramModel):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="attachments",
     )
@@ -281,7 +324,7 @@ class ProjectAttachment(TenantModel):
         ordering = ["label"]
 
 
-class Publication(TenantModel):
+class Publication(ProgramModel):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="publications",
     )
@@ -302,7 +345,7 @@ class Publication(TenantModel):
         return self.title
 
 
-class PublicationMember(TenantModel):
+class PublicationMember(ProgramModel):
     publication = models.ForeignKey(
         Publication, on_delete=models.CASCADE, related_name="member_links",
     )

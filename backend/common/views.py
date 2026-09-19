@@ -6,7 +6,7 @@ from rest_framework import serializers, viewsets
 from .filters import auto_filterset
 from .models import Status
 from .serializers import StatusSerializer
-from .tenant import get_current_org
+from .tenant import get_current_org, get_current_program
 
 # Code SQLSTATE d'une violation de contrainte d'unicité.
 UNIQUE_VIOLATION = "23505"
@@ -20,7 +20,7 @@ def unique_violation_as_400():
     et DRF n'en construit aucun quand la contrainte porte une `condition`
     (index partiel) ou nomme un champ absent du sérialiseur — `organization`,
     justement, que le client ne doit jamais voir. Les deux cas se cumulent sur
-    `uniq_supplier_sifac_code_per_org` et `uniq_expanse_flux_per_org`, qui
+    `uniq_supplier_sifac_code_per_org` et `uniq_expanse_flux_per_program`, qui
     partaient donc en base et remontaient en IntegrityError.
 
     Le bloc `atomic` imbriqué est indispensable : TenantMiddleware ouvre déjà
@@ -81,6 +81,26 @@ class TenantViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         with unique_violation_as_400():
             serializer.save()
+
+
+class ProgramScopedViewSet(TenantViewSet):
+    """Base des vues portant sur un modèle cloisonné par programme.
+
+    Nommée « scoped » et non `ProgramViewSet` : celui-là existe déjà dans
+    `projects.views` et sert la ressource Program elle-même, qui n'est pas
+    cloisonnée par programme. Deux choses opposées sous un même nom seraient
+    une invitation à l'erreur d'import.
+
+    Comme TenantViewSet, elle ne filtre rien : `Model.objects` est un
+    ProgramManager, le queryset arrive déjà cloisonné sur les deux axes. Son
+    seul apport est de poser `program` à la création, au même titre
+    qu'`organization` — un champ que le sérialiseur n'expose pas et que le
+    client ne doit jamais pouvoir choisir. Le programme se sélectionne, mais
+    ailleurs : dans la session, sous le contrôle de TenantMiddleware.
+    """
+
+    def get_create_kwargs(self):
+        return {**super().get_create_kwargs(), "program": get_current_program()}
 
 
 class StatusViewSet(TenantViewSet):

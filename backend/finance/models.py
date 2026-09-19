@@ -1,6 +1,6 @@
 from django.db import models
 
-from common.models import TenantModel
+from common.models import ProgramModel, TenantModel
 from directory.models import Member, Partner
 from projects.models import Axis, Project
 
@@ -35,7 +35,7 @@ class Supplier(TenantModel):
         return self.name
 
 
-class BudgetCategory(TenantModel):
+class BudgetCategory(ProgramModel):
     """Grande masse budgétaire. Rattachée à un partenaire quand la masse lui est
     propre, nulle quand elle vaut pour tout le programme."""
 
@@ -53,7 +53,7 @@ class BudgetCategory(TenantModel):
         return self.title
 
 
-class BudgetDetail(TenantModel):
+class BudgetDetail(ProgramModel):
     """Ligne budgétaire, arborescente via `parent`."""
 
     budget_category = models.ForeignKey(
@@ -76,7 +76,7 @@ class BudgetDetail(TenantModel):
         return self.title
 
 
-class FinancialAgreement(TenantModel):
+class FinancialAgreement(ProgramModel):
     # `SET_NULL` et non `CASCADE` : une convention est un engagement contractuel
     # signé avec un partenaire, pas un détail du projet. Supprimer le projet doit
     # rompre le rattachement, pas détruire la pièce — ni ses membres, ni ses
@@ -119,7 +119,7 @@ class FinancialAgreement(TenantModel):
         return self.title
 
 
-class AgreementMember(TenantModel):
+class AgreementMember(ProgramModel):
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="agreement_links",
     )
@@ -135,7 +135,7 @@ class AgreementMember(TenantModel):
         ]
 
 
-class Expanse(TenantModel):
+class Expanse(ProgramModel):
     """Dépense. Le nom porte une faute figée par l'usage : la renommer suppose
     de renommer aussi le champ côté front (`src/lib/types.ts:389`).
 
@@ -190,10 +190,17 @@ class Expanse(TenantModel):
             # Le rapprochement se fait sur le flux seul, jamais sur le couple
             # (flux, exercice) : une commande reportée doit retomber sur la même
             # dépense. Contrainte partielle car flux_id est nul en saisie manuelle.
+            #
+            # Portée par le programme et non par l'organisation : c'est le
+            # périmètre où `reconcile` cherche ses correspondances, puisqu'il
+            # interroge `Expanse.objects`. À l'échelle de l'organisation, deux
+            # programmes du même laboratoire portant un même numéro de flux
+            # feraient échouer l'import du second sur une dépense que la
+            # réconciliation n'a même pas le droit de voir.
             models.UniqueConstraint(
-                fields=["organization", "flux_id"],
+                fields=["program", "flux_id"],
                 condition=models.Q(flux_id__isnull=False),
-                name="uniq_expanse_flux_per_org",
+                name="uniq_expanse_flux_per_program",
             )
         ]
 
