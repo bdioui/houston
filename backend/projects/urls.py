@@ -2,7 +2,8 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     AxisViewSet, GroupViewSet, GroupMemberViewSet, KpiViewSet, KpiEntryViewSet,
-    MobilityGrantViewSet, PhdViewSet, ProgramViewSet, ProjectViewSet,
+    MobilityGrantViewSet, PhdViewSet, ProgramMemberViewSet, ProgramViewSet,
+    ProjectViewSet,
     ProjectAttachmentViewSet, ProjectCallViewSet, ProjectFormationViewSet,
     ProjectMemberViewSet, ProjectMilestoneViewSet, ProjectPartnerViewSet,
     PublicationViewSet, PublicationMemberViewSet, TimeEntryViewSet,
@@ -13,6 +14,7 @@ router.register("axes", AxisViewSet, basename="axis")
 router.register("groups", GroupViewSet, basename="group")
 router.register("group-members", GroupMemberViewSet, basename="group-member")
 router.register("programs", ProgramViewSet, basename="program")
+router.register("program-members", ProgramMemberViewSet, basename="program-member")
 router.register("kpis", KpiViewSet, basename="kpi")
 router.register("kpi-entries", KpiEntryViewSet, basename="kpi-entry")
 router.register("project-calls", ProjectCallViewSet, basename="project-call")

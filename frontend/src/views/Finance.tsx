@@ -25,7 +25,8 @@ import {
 import { sifacPreview, sifacImport } from '@/lib/api'
 import type { ImportSummary, SifacPreview } from '@/lib/api'
 import { sifacCategory } from '@/lib/sifac'
-import type { Program, Expanse, BudgetCategory, BudgetDetail, Supplier, Project, FinancialAgreement, Partner, Status, SifacLine } from '@/lib/types'
+import type { Program, Expanse, BudgetCategory, BudgetDetail, Supplier, Project, FinancialAgreement, Partner, Status, LifecycleCode, SifacLine } from '@/lib/types'
+import { paletteColor } from '@/lib/status'
 
 const EXPANSE_CATEGORIES = ['Fonctionnement', 'Investissement', 'Personnel', 'Autre'] as const
 
@@ -50,11 +51,15 @@ const EXPANSE_STATUS_COLORS: Record<string, string> = {
     [ORPHAN_STATUS]: '#fee2e2',
 }
 
-const AGREEMENT_STATUS_COLORS: Record<string, string> = {
-    'En préparation': '#dbeafe',
-    'Active':         '#dcfce7',
-    'Soldée':         '#f3f4f6',
-    'Annulée':        '#fee2e2',
+// Indexée par `code` : « Active » et « Soldée » sont le vocabulaire des
+// conventions pour `active` et `done`, et ce vocabulaire n'a pas à voyager
+// jusqu'ici.
+const AGREEMENT_STATUS_COLORS: Record<LifecycleCode, string> = {
+    todo:      '#dbeafe',
+    active:    '#dcfce7',
+    on_hold:   '#fef9c3',
+    done:      '#f3f4f6',
+    cancelled: '#fee2e2',
 }
 
 function formatAmount(n: number) {
@@ -1470,7 +1475,7 @@ function ConventionsTab({ agreements, setAgreements, partners, projects, statuse
         }
         if (statusFilter !== 'all') {
             const status = statusMap.get(a.status_id ?? -1)
-            if (status?.label !== statusFilter) return false
+            if (status?.code !== statusFilter) return false
         }
         if (partnerFilter !== null && a.partner_id !== partnerFilter) return false
         if (projectFilter !== null && a.project_id !== projectFilter) return false
@@ -1479,7 +1484,7 @@ function ConventionsTab({ agreements, setAgreements, partners, projects, statuse
 
     const totalGrant = agreements.reduce((s, a) => s + a.grant, 0)
     const totalBudget = agreements.reduce((s, a) => s + a.budget, 0)
-    const activeCount = agreements.filter(a => statusMap.get(a.status_id ?? -1)?.label === 'Active').length
+    const activeCount = agreements.filter(a => statusMap.get(a.status_id ?? -1)?.code === 'active').length
 
     const allFilteredSelected = filtered.length > 0 && filtered.every(a => selected.has(a.id))
     const someSelected = filtered.some(a => selected.has(a.id))
@@ -1606,7 +1611,9 @@ function ConventionsTab({ agreements, setAgreements, partners, projects, statuse
                     <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="Statut" /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Tous les statuts</SelectItem>
-                        {agreementStatuses.filter(s => s.label !== '').map(s => <SelectItem key={s.id} value={s.label}>{s.label}</SelectItem>)}
+                        {/* La valeur est le code, l'affichage reste le libellé :
+                            un renommage ne doit pas casser un filtre. */}
+                        {agreementStatuses.filter(s => s.label !== '').map(s => <SelectItem key={s.id} value={s.code}>{s.label}</SelectItem>)}
                     </SelectContent>
                 </Select>
                 <div className="flex items-center gap-1 w-44">
@@ -1858,7 +1865,7 @@ function ConventionsTab({ agreements, setAgreements, partners, projects, statuse
                                     </TableCell>
                                     <TableCell className="text-right font-medium tabular-nums">{formatAmount(a.grant)}</TableCell>
                                     <TableCell>
-                                        <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: AGREEMENT_STATUS_COLORS[status?.label ?? ''] ?? '#f3f4f6' }}>
+                                        <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: paletteColor(AGREEMENT_STATUS_COLORS, status?.code, '#f3f4f6') }}>
                                             {status?.label ?? '—'}
                                         </span>
                                     </TableCell>

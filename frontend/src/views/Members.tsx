@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { getMembersFull, getPartners, getLabs, addMember, updateMember, deleteMember, addPartner, getGroups, getGroupMembers, removeMemberFromGroup, addMemberToGroup, addGroup, deleteGroup, getAllMemberActionCards, getAllProjectMembers, getActionCardsFull, getProjects, addMemberToCard, removeMemberFromCard, addProjectMember, removeProjectMember, createActionCardFull, addProject } from '@/lib/api'
+import { getMembersFull, getMembers, getPartners, getLabs, addMember, updateMember, deleteMember, addPartner, getGroups, getGroupMembers, removeMemberFromGroup, addMemberToGroup, addGroup, deleteGroup, getAllMemberActionCards, getAllProjectMembers, getActionCardsFull, getProjects, addMemberToCard, removeMemberFromCard, addProjectMember, removeProjectMember, createActionCardFull, addProject, getProgram, getProgramMembers, addProgramMember, removeProgramMember } from '@/lib/api'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,14 +13,14 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Plus, Pencil, X, Mail, Phone, ChevronDown, Trash2, CopyIcon, Trash, PencilIcon, ShareIcon, CheckIcon, ListChecks, Download, FileDown, BadgeCheck, Check, Tag, LayoutGrid, Table2, Users, ListTodo, FolderOpen } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { type MemberFull, type Partner, type Lab, type Group, type GroupMember, type ActionCardFull, type MemberActionCard, type ProjectMember, type Project } from '@/lib/types'
+import { type Member, type MemberFull, type Partner, type Lab, type Group, type GroupMember, type ActionCardFull, type MemberActionCard, type ProjectMember, type Project, type Program, type ProgramMember } from '@/lib/types'
 import { ProjectViewerSheet, ActionCardViewerSheet } from '@/components/viewers'
 import { PARTNER_TYPES, PALETTE } from '@/lib/constants'
 import { exportToCsv } from '@/lib/utils'
 import {ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuGroup, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,}  from '@/components/ui/context-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import SearchInput from '@/components/SearchInput'
-import { useCurrentUser } from '@/lib/userContext'
+import { useCurrentProgram, useCurrentUser } from '@/lib/userContext'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { motion } from "framer-motion"
 
@@ -335,9 +335,10 @@ type MemberDetailSheetProps = {
     onClose:        () => void
     onUpdated:      (m: MemberFull) => void
     onDeleted:      (id: number) => void
+    onAffectationChanged: () => void
 }
 
-function MemberDetailSheet({ member, partners, labs, existingEmails, open, onClose, onUpdated, onDeleted }: MemberDetailSheetProps) {
+function MemberDetailSheet({ member, partners, labs, existingEmails, open, onClose, onUpdated, onDeleted, onAffectationChanged }: MemberDetailSheetProps) {
     const currentUser = useCurrentUser()
     const [editing,    setEditing]    = useState(false)
     const [confirming, setConfirming] = useState(false)
@@ -354,6 +355,57 @@ function MemberDetailSheet({ member, partners, labs, existingEmails, open, onClo
     const [allProjects,  setAllProjects]  = useState<Project[]>([])
     const [openProject,  setOpenProject]  = useState<Project | null>(null)
 
+    // Affectations aux programmes
+    const [programs,         setPrograms]         = useState<Program[]>([])
+    const [programLinks,     setProgramLinks]     = useState<ProgramMember[]>([])
+    const [togglingProgram,  setTogglingProgram]  = useState<number | null>(null)
+    const [programError,     setProgramError]     = useState<string | null>(null)
+    // Les affectations du *titulaire*, pour y lire ses titres. Distinctes de
+    // `programLinks`, qui sont celles de la fiche ouverte.
+    const [myLinks,          setMyLinks]          = useState<ProgramMember[]>([])
+
+    // Sa propre fiche : on ne retire pas son affectation depuis l'intérieur.
+    // Le middleware revérifie le rattachement à chaque requête, l'écran se
+    // refermerait sur son auteur dès la suivante — et il faudrait quelqu'un
+    // d'autre pour l'y remettre.
+    const isSelf = currentUser?.id === member.id
+
+    // Affecter une fiche *sans compte* n'ouvre aucune porte à personne : c'est
+    // de la saisie, et toute l'équipe peut la faire — un contact, un doctorant,
+    // le référent d'un partenaire. Affecter une fiche *avec* compte donne un
+    // accès, et n'appartient qu'à qui administre le programme visé.
+    //
+    // La question se pose donc par programme et non une fois pour toutes : on
+    // peut administrer celui-ci et pas le suivant. Le serveur refuse en 403 de
+    // toute façon ; ici on évite une case qui se décocherait toute seule.
+    const canAffect = (program: Program) =>
+        !member.has_account ||
+        myLinks.find(l => l.program_id === program.id)?.is_admin === true
+
+    async function handleToggleProgram(program: Program) {
+        const link = programLinks.find(l => l.program_id === program.id)
+        setTogglingProgram(program.id)
+        setProgramError(null)
+        try {
+            if (link) {
+                await removeProgramMember(link.id)
+                setProgramLinks(prev => prev.filter(l => l.id !== link.id))
+                toast.success(`${member.first_name} ${member.last_name} retiré de « ${program.name} »`)
+            } else {
+                const created = await addProgramMember(member.id, program.id)
+                setProgramLinks(prev => [...prev, created])
+                toast.success(`${member.first_name} ${member.last_name} affecté à « ${program.name} »`)
+            }
+            // La liste derrière la feuille est filtrée par programme : sans
+            // relecture, une fiche qu'on vient d'en retirer y resterait.
+            onAffectationChanged()
+        } catch (err) {
+            setProgramError(err instanceof Error ? err.message : 'Opération impossible.')
+        } finally {
+            setTogglingProgram(null)
+        }
+    }
+
     // Quick-add ActionCard
     const [showCardCreate,  setShowCardCreate]  = useState(false)
     const [qCardTitle,      setQCardTitle]      = useState('')
@@ -367,6 +419,10 @@ function MemberDetailSheet({ member, partners, labs, existingEmails, open, onClo
         if (!open) return
         setShowCardCreate(false)
         setShowProjectCreate(false)
+        setProgramError(null)
+        getProgram().then(setPrograms)
+        getProgramMembers(member.id).then(setProgramLinks)
+        if (currentUser) getProgramMembers(currentUser.id).then(setMyLinks)
         Promise.all([
             getAllMemberActionCards(),
             getActionCardsFull(),
@@ -604,6 +660,50 @@ function MemberDetailSheet({ member, partners, labs, existingEmails, open, onClo
                                     </a>
                                 )}
                             </div>
+                        </section>
+
+                        <Separator />
+
+                        {/* ── PROGRAMMES ── */}
+                        <section className="flex flex-col gap-3">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                Programmes ({programLinks.length}/{programs.length})
+                            </p>
+                            {/* Les programmes du titulaire, pas ceux du
+                                laboratoire : on ne peut donner accès qu'à un
+                                programme dont on fait soi-même partie, et le
+                                serveur refuse le reste en 400. Montrer les
+                                autres ne ferait qu'offrir des cases mortes. */}
+                            {programs.length === 0 ? (
+                                <p className="text-xs text-muted-foreground italic">Aucun programme</p>
+                            ) : (
+                                <div className="flex flex-col gap-1">
+                                    {programs.map(p => {
+                                        const link = programLinks.find(l => l.program_id === p.id)
+                                        return (
+                                            <button
+                                                key={p.id}
+                                                disabled={isSelf || togglingProgram !== null || !canAffect(p)}
+                                                onClick={() => handleToggleProgram(p)}
+                                                className="flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-muted text-left disabled:opacity-60 disabled:hover:bg-transparent"
+                                            >
+                                                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${link ? 'bg-primary border-primary text-primary-foreground' : 'border-input'}`}>
+                                                    {link && <Check size={10} />}
+                                                </span>
+                                                <span className="truncate flex-1">{p.name}</span>
+                                                {link?.role && <Badge variant="outline" className="text-[10px] shrink-0">{link.role}</Badge>}
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                            {isSelf && (
+                                <p className="text-xs text-muted-foreground italic">
+                                    Vos propres affectations ne se modifient pas ici : vous
+                                    perdriez l'accès au programme où vous travaillez.
+                                </p>
+                            )}
+                            {programError && <p className="text-xs text-destructive">{programError}</p>}
                         </section>
 
                         <Separator />
@@ -1223,6 +1323,10 @@ export default function Members() {
     const [projects, setProjects] = useState<Project[]>([])
     const [projectLinks, setProjectLinks] = useState<ProjectMember[]>([])
     const [labs,     setLabs]     = useState<Lab[]>([])
+    // Les emails de tout le laboratoire, et pas seulement ceux affichés : rien
+    // ne contraint l'unicité en base, cette liste est la seule garde contre une
+    // fiche créée en double — elle doit voir au-delà du programme.
+    const [orgEmails, setOrgEmails] = useState<string[]>([])
     const [groups, setGroups]     = useState<Group[]>([])
     const [groupLinks, setGroupLinks] = useState<GroupMember[]>([])
     const [loading,  setLoading]  = useState(false)
@@ -1241,6 +1345,10 @@ export default function Members() {
     const [confirmingDelete, setConfirmingDelete] = useState(false)
     const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<number | null>(null)
     const [myGroupsOnly, setMyGroupsOnly] = useState(false)
+    // L'équipe par défaut : un programme n'a rien à faire des membres des
+    // autres. Le laboratoire entier reste à un clic, parce qu'il faut bien
+    // pouvoir y retrouver quelqu'un pour l'affecter ou l'inviter.
+    const [orgWide, setOrgWide] = useState(false)
     type ViewMode = 'cards' | 'table'
     type MemberSortKey = 'name' | 'position' | 'status' | 'partner' | 'lab' | 'email'
 
@@ -1259,6 +1367,7 @@ export default function Members() {
     }
 
     const currentUser = useCurrentUser()
+    const currentProgram = useCurrentProgram()
 
     const displayedGroups = myGroupsOnly && currentUser
     ? groups.filter(g => g.owner_id === currentUser.id)
@@ -1344,11 +1453,22 @@ export default function Members() {
         }
     }
 
+    // Seule la liste dépend du périmètre : partenaires, groupes, actions et
+    // projets sont les mêmes des deux côtés du basculement, les relire serait
+    // huit requêtes pour rien.
+    const reloadMembers = useCallback(() => {
+        getMembersFull(orgWide ? undefined : currentProgram?.id)
+            .then(setMembers)
+            .catch(err => setError(err.message))
+    }, [orgWide, currentProgram?.id])
+
+    useEffect(() => { reloadMembers() }, [reloadMembers])
+
     useEffect(() => {
     setLoading(true)
-    Promise.all([getMembersFull(), getPartners(), getLabs(), getGroups(), getGroupMembers(), getActionCardsFull(), getAllMemberActionCards(), getProjects(), getAllProjectMembers()])
-        .then(([m, p, l, g, gm, ac, mac, proj, pm]) => {
-            setMembers(m)
+    Promise.all([getMembers(), getPartners(), getLabs(), getGroups(), getGroupMembers(), getActionCardsFull(), getAllMemberActionCards(), getProjects(), getAllProjectMembers()])
+        .then(([all, p, l, g, gm, ac, mac, proj, pm]) => {
+            setOrgEmails((all as Member[]).map(m => m.email))
             setPartners(p)
             setLabs(l)
             setGroups(g)
@@ -1462,6 +1582,26 @@ export default function Members() {
                     onChange={e => setQuery(e.target.value)}
                     className="max-w-sm"
                 />
+
+                {/* Périmètre. Rempli quand il restreint, comme les autres
+                    pastilles — et l'équipe du programme étant le défaut, la
+                    pastille est allumée à l'ouverture de l'écran.
+
+                    `FolderOpen` et non `Users` : la pastille voisine filtre
+                    `is_staff` et s'appelle déjà « Equipe ». Deux pastilles au
+                    même pictogramme laisseraient croire à deux réglages d'une
+                    même chose. */}
+                <button
+                    onClick={() => setOrgWide(v => !v)}
+                    className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                        orgWide
+                            ? 'border-border text-muted-foreground hover:border-foreground hover:text-foreground'
+                            : 'bg-foreground text-background border-foreground'
+                    }`}
+                >
+                    <FolderOpen size={12} />
+                    {orgWide ? 'Tout le laboratoire' : currentProgram?.name ?? 'Programme'}
+                </button>
 
                 {/* Filtre statut — multi-select */}
                 <Popover>
@@ -1910,11 +2050,12 @@ export default function Members() {
                     member={selected}
                     partners={partners}
                     labs={labs}
-                    existingEmails={members.map(m => m.email)}
+                    existingEmails={orgEmails}
                     open={!!selected}
                     onClose={() => setSelected(null)}
                     onUpdated={handleUpdated}
                     onDeleted={handleDeleted}
+                    onAffectationChanged={reloadMembers}
                 />
             )}
 
@@ -1932,7 +2073,7 @@ export default function Members() {
                             mode="create"
                             partners={partners}
                             labs={labs}
-                            existingEmails={members.map(m => m.email)}
+                            existingEmails={orgEmails}
                             onCreated={handleCreated}
                             onClose={() => setShowCreate(false)}
                         />

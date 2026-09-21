@@ -95,17 +95,21 @@ class OrganizationMember(models.Model):
         blank=True,
         related_name="user_link",
     )
-    # Le premier droit de l'application, et volontairement le seul. Il porte une
-    # question unique : qui peut agrandir le laboratoire ? Tout le reste — lire,
-    # écrire, supprimer — dépend du cloisonnement, pas d'un grade.
+    # Un booléen et non un rôle, parce qu'il n'y a pas de gradation à exprimer :
+    # on a fondé cet espace de travail ou non. Il se pose à la création et ne
+    # s'accorde ensuite que par un geste explicite — jamais au détour d'une
+    # invitation, qui rattache toujours un compte ordinaire.
+    #
+    # Ce qu'il commande tient à la *forme* de l'espace : créer un programme,
+    # inviter, retirer un compte, transmettre la propriété. Ce qui se passe
+    # *dans* un programme relève de `ProgramMember.is_admin`, et les deux ne se
+    # recouvrent que parce que le propriétaire est affecté comme administrateur
+    # à chaque programme qu'il crée — en données, pas par une exception dans le
+    # code du cloisonnement.
     #
     # Sur le rattachement et non sur User, pour la même raison que `member` :
-    # administrer son propre laboratoire ne donne aucun titre dans un autre.
-    role = models.CharField(
-        max_length=20,
-        choices=[("admin", "Administrateur"), ("member", "Membre")],
-        default="member",
-    )
+    # fonder un laboratoire ne donne aucun titre dans un autre.
+    is_owner = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -176,9 +180,8 @@ class Invitation(TenantModel):
     # à l'organisation ne suffit donc pas à rendre un compte utilisable, il
     # faut les deux axes — c'est la conséquence directe du cloisonnement.
     #
-    # Nul reste permis : inviter un administrateur qui répartira lui-même les
-    # programmes est légitime. Le front doit alors dire « aucun programme »
-    # plutôt que proposer un choix vide.
+    # Nul reste permis pour les invitations déjà émises, qui n'en portaient pas.
+    # Le sérialiseur l'exige, lui : c'est une règle du formulaire, pas du schéma.
     program = models.ForeignKey(
         "projects.Program",
         on_delete=models.CASCADE,
@@ -186,11 +189,16 @@ class Invitation(TenantModel):
         blank=True,
         related_name="invitations",
     )
-    role = models.CharField(
-        max_length=20,
-        choices=[("admin", "Administrateur"), ("member", "Membre")],
-        default="member",
-    )
+    # Le titre accordé *dans le programme visé*, et rien au-delà. Une invitation
+    # ne fabrique jamais un propriétaire : entrer dans le laboratoire ouvre déjà
+    # tout l'annuaire, en confier la forme à quelqu'un est un geste distinct,
+    # que le propriétaire pose lui-même après coup.
+    #
+    # C'est aussi ce qui lève l'ambiguïté de l'ancien champ `role`, posé à côté
+    # d'un champ `program` dont il n'était pourtant pas borné : on pouvait
+    # croire nommer un administrateur « sur un programme » et en faire un
+    # administrateur du laboratoire entier.
+    is_program_admin = models.BooleanField(default=False)
     invited_by = models.ForeignKey(
         "accounts.User",
         on_delete=models.SET_NULL,

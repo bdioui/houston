@@ -2,11 +2,16 @@ from rest_framework import serializers
 
 from .models import (
     Axis, Group, GroupMember, Kpi, KpiEntry, MobilityGrant, Phd, Program,
-    Project, ProjectAttachment, ProjectCall, ProjectFormation, ProjectMember,
-    ProjectMilestone, ProjectPartner, Publication, PublicationMember, TimeEntry,
+    ProgramMember, Project, ProjectAttachment, ProjectCall, ProjectFormation,
+    ProjectMember, ProjectMilestone, ProjectPartner, Publication,
+    PublicationMember, TimeEntry,
 )
 from common.models import Status
-from common.serializers import BaseModelSerializer, TenantRelatedField
+from common.serializers import (
+    BaseModelSerializer,
+    ReferenceRelatedField,
+    TenantRelatedField,
+)
 from directory.models import Formation, Lab, Member, Partner
 
 class AxisSerializer(BaseModelSerializer):
@@ -37,6 +42,15 @@ class ProgramSerializer(BaseModelSerializer):
     Son unicité par organisation est une contrainte partielle (les programmes
     sur fonds propres n'ont pas de PFI) : DRF ne sait pas en construire de
     validateur, c'est `unique_violation_as_400` qui la rattrape en 400.
+
+    `validators = []` dit cela à DRF, et ce n'est pas cosmétique. Sans la
+    liste, `get_uniqueness_extra_kwargs` inspecte les contraintes du modèle à
+    la *construction des champs*, et une contrainte conditionnelle lui fait
+    évaluer `Program._default_manager.filter(condition)` — donc `TenantManager`,
+    qui lève hors contexte. Ce sérialiseur est imbriqué dans l'arbre de
+    `/api/organizations/`, la seule collection qui doive rester joignable sans
+    laboratoire actif : il y rendait un 409, et le sélecteur de laboratoire
+    n'avait plus rien à afficher. La liste vide court-circuite l'inspection.
     """
 
     class Meta:
@@ -45,6 +59,44 @@ class ProgramSerializer(BaseModelSerializer):
             "id", "pfi", "name", "description", "budget", "start_date",
             "end_date", "logo", "management_fee_rate",
         ]
+        validators = []
+
+
+class ProgramMemberSerializer(BaseModelSerializer):
+    member_id = TenantRelatedField(Member, source="member", required=True, allow_null=False)
+    program_id = TenantRelatedField(Program, source="program", required=True, allow_null=False)
+
+    class Meta:
+        model = ProgramMember
+        # `role` et `is_admin` voisinent et ne se ressemblent qu'en surface :
+        # l'un est un intitulé libre affiché tel quel, l'autre un droit relu à
+        # chaque requête. Voir la docstring du modèle.
+        fields = ["id", "member_id", "program_id", "role", "is_admin"]
+
+    def validate_program_id(self, program):
+        """On n'affecte que dans un programme où l'on est soi-même affecté.
+
+        `TenantRelatedField` n'accepte déjà que les programmes du laboratoire,
+        mais c'est insuffisant ici : l'affectation est précisément
+        l'autorisation que TenantMiddleware vérifie, donc pouvoir en écrire une
+        vers un programme voisin revient à s'en ouvrir l'accès. La garde est au
+        sérialiseur plutôt qu'au queryset du champ parce qu'elle doit aussi
+        couvrir le déplacement d'une affectation existante par PATCH.
+
+        `validate_program_id` et non `validate_program` : DRF construit le nom
+        sur celui du champ, pas sur son `source`.
+
+        C'est le plancher et non toute la règle : `ProgramMemberViewSet._guard`
+        exige en plus d'administrer le programme dès que l'écriture donne un
+        accès — fiche titulaire d'un compte — ou un titre.
+        """
+        member = self.context["request"].member
+        if member is None or not program.member_links.filter(member=member).exists():
+            raise serializers.ValidationError(
+                "Vous ne pouvez affecter quelqu'un qu'à un programme dont vous "
+                "faites partie."
+            )
+        return program
 
 
 class KpiSerializer(BaseModelSerializer):
@@ -55,7 +107,7 @@ class KpiSerializer(BaseModelSerializer):
 
 class ProjectCallSerializer(BaseModelSerializer):
     axis_id = TenantRelatedField(Axis, source="axis")
-    status_id = TenantRelatedField(Status, source="status")
+    status_id = ReferenceRelatedField(Status, source="status")
 
     class Meta:
         model = ProjectCall
@@ -69,7 +121,7 @@ class ProjectSerializer(BaseModelSerializer):
     project_call_id = TenantRelatedField(
         ProjectCall, source="project_call", required=True, allow_null=False
     )
-    status_id = TenantRelatedField(Status, source="status")
+    status_id = ReferenceRelatedField(Status, source="status")
 
     class Meta:
         model = Project
@@ -90,7 +142,7 @@ class ProjectPartnerSerializer(BaseModelSerializer):
 
 class ProjectMilestoneSerializer(BaseModelSerializer):
     project_id = TenantRelatedField(Project, source="project", required=True, allow_null=False)
-    status_id = TenantRelatedField(Status, source="status")
+    status_id = ReferenceRelatedField(Status, source="status")
 
     class Meta:
         model = ProjectMilestone
@@ -100,7 +152,7 @@ class ProjectMilestoneSerializer(BaseModelSerializer):
 class ProjectMemberSerializer(BaseModelSerializer):
     member_id = TenantRelatedField(Member, source="member", required=True, allow_null=False)
     project_id = TenantRelatedField(Project, source="project", required=True, allow_null=False)
-    participation_status_id = TenantRelatedField(Status, source="participation_status")
+    participation_status_id = ReferenceRelatedField(Status, source="participation_status")
 
     class Meta:
         model = ProjectMember

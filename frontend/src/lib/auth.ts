@@ -1,6 +1,6 @@
 import { get, post } from './client'
 import { mockOrganizations, mockProgram } from './mock'
-import type { Organization, OrgRole, Program } from './types'
+import type { Organization, Program } from './types'
 
 // L'identité seule. Ni laboratoire ni fiche annuaire : ils dépendent du
 // contexte choisi, et un compte rattaché à deux laboratoires n'a pas de réponse
@@ -28,14 +28,18 @@ export type AuthUser = {
 // annuaire est propre au laboratoire, la même personne en ayant une par
 // rattachement. Nul pour un compte de support, qui n'y figure pas.
 //
-// `org_role` aussi : on peut être administrateur d'un laboratoire et simple
-// membre du suivant. Il ne décide que de l'affichage — le droit d'inviter est
-// revérifié à chaque requête côté serveur.
+// `is_owner` et `is_program_admin` aussi, chacun sur son axe : on peut avoir
+// fondé un laboratoire et n'être qu'un membre ordinaire du suivant, administrer
+// un programme et pas celui d'à côté. Ils ne décident que de l'affichage d'un
+// bouton — « Partager », « Nouveau programme ». L'autorisation est refaite à
+// chaque requête côté serveur, et un front qui mentirait n'obtiendrait qu'un
+// 403.
 export type Session = {
     user: AuthUser
     organization: Organization | null
     member_id: number | null
-    org_role: OrgRole | null
+    is_owner: boolean
+    is_program_admin: boolean
     program: Program | null
 }
 
@@ -44,7 +48,8 @@ type MeResponse = {
     user?: AuthUser
     organization?: Organization | null
     member_id?: number | null
-    org_role?: OrgRole | null
+    is_owner?: boolean
+    is_program_admin?: boolean
     program?: Program | null
 }
 
@@ -70,10 +75,11 @@ export async function fetchMe(): Promise<Session | null> {
             // La première fiche du jeu fictif, pour que l'en-tête ait un avatar
             // et un nom. En mode mock rien ne relie un compte à une fiche.
             member_id: 1,
-            // Administrateur en mode fictif : c'est le seul moyen de voir
-            // l'écran d'invitation sans backend. Les appels qu'il déclenche
+            // Propriétaire en mode fictif : c'est le seul moyen de voir
+            // l'écran de partage sans backend. Les appels qu'il déclenche
             // échoueront, faute de branche mock — il n'y a rien à rejoindre.
-            org_role: 'admin',
+            is_owner: true,
+            is_program_admin: true,
             program: mockProgram[0] ?? null,
         }
     }
@@ -83,7 +89,8 @@ export async function fetchMe(): Promise<Session | null> {
         user: res.user,
         organization: res.organization ?? null,
         member_id: res.member_id ?? null,
-        org_role: res.org_role ?? null,
+        is_owner: res.is_owner ?? false,
+        is_program_admin: res.is_program_admin ?? false,
         program: res.program ?? null,
     }
 }
@@ -107,8 +114,6 @@ export type SignupPayload = {
     first_name: string
     last_name: string
     organization_name: string
-    program_name: string
-    program_pfi: string
 }
 
 // Cinq objets naissent derrière ce seul appel : le laboratoire, le compte, sa

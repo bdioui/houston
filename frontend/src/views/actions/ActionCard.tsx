@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -29,10 +29,11 @@ import {
     getAgreementActionCardsByCard, addAgreementToCard, removeAgreementFromCard,
     deleteActionCard,
     getCommentsFull, createComment, updateComment, deleteComment,
-    addMember,
+    addMember, 
 } from '@/lib/api'
-import type { Status, Category, Member, Partner, Project, ToDoList, ToDoItem, MemberActionCard, ProjectActionCard, AgreementActionCard, FinancialAgreement, CommentFull } from '@/lib/types'
-import { useCurrentUser } from '@/lib/userContext'
+import type { Status, LifecycleCode, Category, Member, Partner, Project, ToDoList, ToDoItem, MemberActionCard, ProjectActionCard, AgreementActionCard, FinancialAgreement, CommentFull } from '@/lib/types'
+import { codeOf, defaultStatusId, paletteColor } from '@/lib/status'
+import { useCurrentProgram, useCurrentUser } from '@/lib/userContext'
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   DropdownMenu,
@@ -67,7 +68,7 @@ export type ActionCardData = {
     id: number
     title: string
     description?: string
-    status: Pick<Status, 'id' | 'label' | 'context'>
+    status: Pick<Status, 'id' | 'code' | 'label' | 'context'>
     category: {
         id: number
         title: string
@@ -85,12 +86,12 @@ export type ActionCardData = {
 
 // --- Helpers ---
 
-const STATUS_COLORS: Record<string, string> = {
-    'En cours':  '#d1fae5',
-    'Planifié':  '#fef9c3',
-    'Terminé':   '#f3f4f6',
-    'Annulé':    '#fee2e2',
-    'À traiter': '#ffedd5',
+const STATUS_COLORS: Record<LifecycleCode, string> = {
+    active:    '#d1fae5',
+    on_hold:   '#fef9c3',
+    done:      '#f3f4f6',
+    cancelled: '#fee2e2',
+    todo:      '#ffedd5',
 }
 
 const ROLES = ['Responsable', 'Contributeur', 'Observateur', 'Prospect', 'Participant']
@@ -104,17 +105,20 @@ function formatDate(date?: string | null) {
 
 type TodoItemRowProps = {
     item: ToDoItem
+    programMembers: Member[]
     onToggle: (item: ToDoItem) => void
     onDelete: (item: ToDoItem) => void
     onDueDateChange: (item: ToDoItem, due_date: string) => void
     onContentChange: (item: ToDoItem, content: string) => void
+    onMemberChange: (item: ToDoItem, ownerId: number | null) => void
+    statuses: Status[]
 }
 
-function TodoItemRow({ item, onToggle, onDelete, onDueDateChange, onContentChange }: TodoItemRowProps) {
+function TodoItemRow({ item, programMembers, onToggle, onDelete, onDueDateChange, onContentChange, onMemberChange, statuses }: TodoItemRowProps) {
     const [editingDate,    setEditingDate]    = useState(false)
     const [editingContent, setEditingContent] = useState(false)
     const [contentDraft,   setContentDraft]   = useState('')
-    const done = item.status_id === 9
+    const done = codeOf(statuses, item.status_id) === 'done'
     const today = new Date().toISOString().slice(0, 10)
     const isOverdue = item.due_date && !done && item.due_date < today
 
@@ -173,6 +177,21 @@ function TodoItemRow({ item, onToggle, onDelete, onDueDateChange, onContentChang
                     <Calendar size={12} />
                 </button>
             )}
+            {programMembers.length > 0 && (
+                <Select value={item.member_id != null ? String(item.member_id) : ''} onValueChange={v => onMemberChange(item, v === '0' ? null : Number(v))}>
+                    <SelectTrigger className={`h-7 text-xs w-40 shrink-0 ${item.member_id == null ? 'border-transparent text-muted-foreground hover:border-input' : ''}`}>
+                        <SelectValue placeholder="Assigner un membre" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectGroup>
+                            <SelectItem value={'0'} className="text-muted-foreground">Non assigné</SelectItem>
+                            {programMembers.map(m=> 
+                                    <SelectItem key={m.id} value={String(m.id)}>{m.first_name} {m.last_name}</SelectItem>
+                        )}
+                        </SelectGroup>
+                    </SelectContent>
+                </Select>
+            )}
             <button
                 onClick={() => onDelete(item)}
                 className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
@@ -187,21 +206,26 @@ function TodoItemRow({ item, onToggle, onDelete, onDueDateChange, onContentChang
 
 type TodoSectionProps = {
     list: ToDoList & { items: ToDoItem[] }
+    programMembers: Member[]
+    cardOwnerId? : number | null
     onToggle: (listId: number, item: ToDoItem) => void
     onDeleteItem: (listId: number, item: ToDoItem) => void
-    onAddItem: (listId: number, content: string, due_date?: string) => void
+    onAddItem: (listId: number, content: string, member_id: number | null, due_date?: string)  => void
     onDeleteList: (listId: number) => void
     onDueDateChange: (listId: number, item: ToDoItem, due_date: string) => void
     onContentChange: (listId: number, item: ToDoItem, content: string) => void
     onTitleChange: (listId: number, title: string) => void
+    onMemberChange: (listId: number, item: ToDoItem, ownerId: number | null) => void
+    statuses: Status[]
 }
 
-function TodoSection({ list, onToggle, onDeleteItem, onAddItem, onDeleteList, onDueDateChange, onContentChange, onTitleChange }: TodoSectionProps) {
+function TodoSection({ list, programMembers, cardOwnerId, onMemberChange, onToggle, onDeleteItem, onAddItem, onDeleteList, onDueDateChange, onContentChange, onTitleChange, statuses }: TodoSectionProps) {
     const [input,        setInput]        = useState('')
     const [dueDate,      setDueDate]      = useState('')
     const [editingTitle, setEditingTitle] = useState(false)
+    const [owner, setOwner] = useState(cardOwnerId ?? null)
     const [titleDraft,   setTitleDraft]   = useState('')
-    const done = list.items.filter(i => i.status_id === 9).length
+    const done = list.items.filter(i => codeOf(statuses, i.status_id) === 'done').length
 
     function commitTitle() {
         const trimmed = titleDraft.trim()
@@ -211,7 +235,7 @@ function TodoSection({ list, onToggle, onDeleteItem, onAddItem, onDeleteList, on
 
     function submit() {
         if (!input.trim()) return
-        onAddItem(list.id, input.trim(), dueDate || undefined)
+        onAddItem(list.id, input.trim(), owner, dueDate || undefined)
         setInput('')
         setDueDate('')
     }
@@ -256,10 +280,13 @@ function TodoSection({ list, onToggle, onDeleteItem, onAddItem, onDeleteList, on
                     <TodoItemRow
                         key={item.id}
                         item={item}
+                        programMembers={programMembers}
                         onToggle={item => onToggle(list.id, item)}
                         onDelete={item => onDeleteItem(list.id, item)}
                         onDueDateChange={(item, due_date) => onDueDateChange(list.id, item, due_date)}
                         onContentChange={(item, content) => onContentChange(list.id, item, content)}
+                        onMemberChange={(item, memberId) => onMemberChange(list.id, item, memberId)}
+                        statuses={statuses}
                     />
                 ))}
             </ul>
@@ -277,6 +304,21 @@ function TodoSection({ list, onToggle, onDeleteItem, onAddItem, onDeleteList, on
                     onChange={e => setDueDate(e.target.value)}
                     className="h-7 text-xs border border-input rounded-md px-2 bg-background text-muted-foreground w-32"
                 />
+                {programMembers.length > 0 && (
+                    <Select value={owner != null ? String(owner) : ''} onValueChange={v => setOwner(v === '0' ? null : Number(v))}>
+                        <SelectTrigger className={`h-7 text-xs w-40 shrink-0 ${owner == null ? 'border-transparent text-muted-foreground hover:border-input' : ''}`}>
+                            <SelectValue placeholder="Assigner un membre" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectGroup>
+                                <SelectItem value={'0'} className="text-muted-foreground">Non assigné</SelectItem>
+                                {programMembers.map(m=> 
+                                        <SelectItem key={m.id} value={String(m.id)}>{m.first_name} {m.last_name}</SelectItem>
+                                )}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
+                )}
                 <Button variant="outline" size="icon" className="h-7 w-7 shrink-0" onClick={submit} disabled={!input.trim()}>
                     <Plus size={12} />
                 </Button>
@@ -429,6 +471,7 @@ type DetailSheetProps = {
     onClose: () => void
     onUpdated: (patch: Partial<ActionCardData>) => void
     onDeleted?: (id: number) => void
+
 }
 
 // --- Formulaire création rapide membre (dans le sheet détail) ---
@@ -689,7 +732,7 @@ function SortableTabAC({ mode, label, icon, isActive, isEmpty, onActivate, onRem
     )
 }
 
-export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDeleted }: DetailSheetProps) {
+export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDeleted}: DetailSheetProps) {
     const [loading, setLoading] = useState(true)
     const [expanded, setExpanded] = useState(false)
 
@@ -698,9 +741,12 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
     const [projectLinks,   setProjectLinks]   = useState<ProjectLink[]>([])
     const [agreementLinks, setAgreementLinks] = useState<AgreementLink[]>([])
     const [todoLists, setTodoLists] = useState<(ToDoList & { items: ToDoItem[] })[]>([])
+    const program = useCurrentProgram()
+    const [programMembers, setProgramMembers] = useState<Member[]>([])
 
     // Données de référence pour les selects
-    const [allStatuses,         setAllStatuses]         = useState<Status[]>([])
+    const [cardStatuses,         setcardStatuses]         = useState<Status[]>([])
+    const [todoStatuses, setTodoStatuses] = useState<Status[]>([])
     const [participationStatuses, setParticipationStatuses] = useState<Status[]>([])
     const [allCategories, setAllCategories] = useState<Category[]>([])
     const [allMembers,    setAllMembers]    = useState<Member[]>([])
@@ -835,6 +881,13 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
     }
 
     useEffect(() => {
+        if (!program) return
+        let cancelled = false
+        getMembers(program.id).then(rows => { if (!cancelled) setProgramMembers(rows) })
+        return () => { cancelled = true }
+    }, [program?.id])
+
+    useEffect(() => {
         try {
             localStorage.setItem(`tabs_actioncard_${card.id}`, JSON.stringify(activeACTabs))
         } catch {
@@ -865,7 +918,8 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
             setProjectLinks(pl as ProjectLink[])
             setAgreementLinks(al as AgreementLink[])
             setTodoLists(tl)
-            setAllStatuses(s.filter(st => st.context === 'action_card'))
+            setcardStatuses(s.filter(st => st.context === 'action_card'))
+            setTodoStatuses(s.filter(st => st.context === 'todo_item'))
             setParticipationStatuses(s.filter(st => st.context === 'participation'))
             setAllCategories(c)
             setAllMembers(m)
@@ -922,7 +976,7 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
         await updateActionCard(card.id, patch)
 
         // Reconstruire les champs enrichis pour onUpdated
-        const newStatus = allStatuses.find(s => s.id === draft.status.id) ?? draft.status
+        const newStatus = cardStatuses.find(s => s.id === draft.status.id) ?? draft.status
         const rawCat    = allCategories.find(c => c.id === draft.category.id)
         const parentCat = rawCat?.parent_category_id
             ? allCategories.find(c => c.id === rawCat.parent_category_id)
@@ -943,7 +997,12 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
     // --- Todos ---
 
     function toggleTodo(listId: number, item: ToDoItem) {
-        const newStatusId = item.status_id === 9 ? 8 : 9
+        const done = codeOf(todoStatuses, item.status_id) === 'done'
+        // Décocher rend `active`, et non `todo` : c'est le code que portaient
+        // les items non terminés avant le référentiel, la bascule ne doit pas
+        // changer leur sens en passant.
+        const newStatusId = defaultStatusId(todoStatuses, 'todo_item', done ? 'active' : 'done')
+        if (newStatusId === null) return
         updateToDoItem(item.id, { status_id: newStatusId })
         setTodoLists(prev => prev.map(l =>
             l.id !== listId ? l : {
@@ -979,8 +1038,17 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
         setTodoLists(prev => prev.map(l => l.id !== listId ? l : { ...l, title }))
     }
 
-    async function addTodoItem(listId: number, content: string, due_date?: string) {
-        const newItem = await addToDoItemToList(listId, content, due_date)
+    function updateTodoMember(listId: number, item: ToDoItem, member_id: number | null) {
+        updateToDoItem(item.id, { member_id })
+        setTodoLists(prev => prev.map(l =>
+            l.id !== listId ? l : { ...l, items: l.items.map(i => i.id === item.id ? { ...i, member_id } : i) }
+        ))
+    }
+
+    async function addTodoItem(listId: number, content: string, member_id: number | null, due_date?: string) {
+        const statusId = defaultStatusId(todoStatuses, 'todo_item', 'active')
+        if (statusId === null) return
+        const newItem = await addToDoItemToList(listId, statusId, content, due_date, member_id)
         setTodoLists(prev => prev.map(l =>
             l.id !== listId ? l : { ...l, items: [...l.items, newItem] }
         ))
@@ -1079,7 +1147,7 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
         setAgreementLinks(prev => prev.filter(l => l.id !== linkId))
     }
 
-    const statusColor = STATUS_COLORS[draft.status.label] ?? '#f3f4f6'
+    const statusColor = paletteColor(STATUS_COLORS, draft.status.code, '#f3f4f6')
 
     const parentCategories = allCategories.filter(c => !c.parent_category_id)
 
@@ -1265,13 +1333,13 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
                                     <Select
                                         value={String(draft.status.id)}
                                         onValueChange={v => {
-                                            const s = allStatuses.find(s => s.id === Number(v))
+                                            const s = cardStatuses.find(s => s.id === Number(v))
                                             if (s) setDraftField('status', s)
                                         }}
                                     >
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
-                                            {allStatuses.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.label}</SelectItem>)}
+                                            {cardStatuses.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.label}</SelectItem>)}
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -1376,6 +1444,10 @@ export function ActionCardDetailSheet({ card, open, onClose, onUpdated, onDelete
                                                 onDueDateChange={updateDueDate}
                                                 onContentChange={updateTodoContent}
                                                 onTitleChange={updateListTitle}
+                                                onMemberChange={updateTodoMember}
+                                                programMembers={programMembers}
+                                                cardOwnerId={card.owner?.id}
+                                                statuses={todoStatuses}
                                             />
                                         ))}
                                     </div>
@@ -1974,7 +2046,7 @@ export default function ActionCard(props: ActionCardData & {
     useEffect(() => { setData(props) }, [props])
 
     const { title, status, category, owner, start_date, end_date } = data
-    const statusColor = STATUS_COLORS[data.status.label] ?? '#f3f4f6'
+    const statusColor = paletteColor(STATUS_COLORS, data.status.code, '#f3f4f6')
 
     function copyTitle() {
         navigator.clipboard.writeText(data.title)

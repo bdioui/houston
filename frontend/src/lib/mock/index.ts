@@ -16,8 +16,10 @@ import type {
     Formation,
     ProjectFormation,
     ProjectAttachment,
-    Organization,
+    OrganizationTree,
     Program,
+    ProgramMember,
+    OrgMember,
     Supplier,
     Expanse,
     SifacLine,
@@ -31,32 +33,55 @@ export const mockUser: User = {
     email: 'isabelle.petit@entreprise.fr'
 }
 
+// Doit refléter le référentiel semé par `common/migrations/0003`. Les
+// identifiants, eux, n'ont pas à correspondre à ceux de la base : ils ne valent
+// qu'à l'intérieur de ce fichier, et c'est précisément pourquoi le reste du
+// front lit `code` et jamais `id`.
 export const mockStatuses: Status[] = [
-    { id: 1, label: 'En cours', context: 'action_card' },
-    { id: 2, label: 'Planifié', context: 'action_card' },
-    { id: 3, label: 'Terminé', context: 'action_card' },
-    { id: 4, label: 'Annulé', context: 'action_card' },
-    { id: 5, label: 'À traiter', context: 'action_card' },
-    { id: 6, label: 'En cours', context: 'project_call' },
-    { id: 7, label: 'Terminé', context: 'project_call' },
-    { id: 8, label: 'En cours', context: 'todo_item' },
-    { id: 9, label: 'Terminé', context: 'todo_item' },
+    // --- Carte d'action ---
+    { id: 1, code: 'active', label: 'En cours', context: 'action_card' },
+    // Absorbe l'ancien « Planifié » : la distinction avec « À traiter »
+    // n'était lue nulle part.
+    { id: 2, code: 'todo', label: 'À traiter', context: 'action_card' },
+    { id: 3, code: 'done', label: 'Terminé', context: 'action_card' },
+    { id: 4, code: 'cancelled', label: 'Annulé', context: 'action_card' },
+    { id: 5, code: 'on_hold', label: 'En attente', context: 'action_card' },
+    // --- Appel à projets ---
+    { id: 6, code: 'active', label: 'En cours', context: 'project_call' },
+    { id: 7, code: 'done', label: 'Terminé', context: 'project_call' },
+    { id: 23, code: 'todo', label: 'À venir', context: 'project_call' },
+    { id: 24, code: 'on_hold', label: 'Suspendu', context: 'project_call' },
+    { id: 25, code: 'cancelled', label: 'Annulé', context: 'project_call' },
+    // --- Tâche ---
+    { id: 8, code: 'active', label: 'En cours', context: 'todo_item' },
+    { id: 9, code: 'done', label: 'Terminé', context: 'todo_item' },
+    { id: 26, code: 'todo', label: 'À faire', context: 'todo_item' },
+    { id: 27, code: 'on_hold', label: 'En attente', context: 'todo_item' },
+    { id: 28, code: 'cancelled', label: 'Annulé', context: 'todo_item' },
     // --- Projet ---
-    { id: 10, label: 'En cours', context: 'project' },
-    { id: 11, label: 'Terminé', context: 'project' },
-    { id: 12, label: 'Suspendu', context: 'project' },
-    { id: 13, label: 'En attente', context: 'project' },
+    { id: 10, code: 'active', label: 'En cours', context: 'project' },
+    { id: 11, code: 'done', label: 'Terminé', context: 'project' },
+    { id: 12, code: 'on_hold', label: 'Suspendu', context: 'project' },
+    { id: 13, code: 'todo', label: 'En attente', context: 'project' },
+    { id: 29, code: 'cancelled', label: 'Annulé', context: 'project' },
     // --- Convention financière ---
-    { id: 14, label: 'En préparation', context: 'financial_agreement' },
-    { id: 15, label: 'Active', context: 'financial_agreement' },
-    { id: 16, label: 'Soldée', context: 'financial_agreement' },
-    { id: 17, label: 'Annulée', context: 'financial_agreement' },
+    { id: 14, code: 'todo', label: 'En préparation', context: 'financial_agreement' },
+    { id: 15, code: 'active', label: 'Active', context: 'financial_agreement' },
+    { id: 16, code: 'done', label: 'Soldée', context: 'financial_agreement' },
+    { id: 17, code: 'cancelled', label: 'Annulée', context: 'financial_agreement' },
+    { id: 30, code: 'on_hold', label: 'Suspendue', context: 'financial_agreement' },
+    // --- Partenaire ---
+    { id: 31, code: 'todo', label: 'Pressenti', context: 'partner' },
+    { id: 32, code: 'active', label: 'Actif', context: 'partner' },
+    { id: 33, code: 'on_hold', label: 'En veille', context: 'partner' },
+    { id: 34, code: 'done', label: 'Clos', context: 'partner' },
+    { id: 35, code: 'cancelled', label: 'Annulé', context: 'partner' },
     // --- Participation ---
-    { id: 18, label: 'Inscrit', context: 'participation' },
-    { id: 19, label: 'Confirmé', context: 'participation' },
-    { id: 20, label: 'Présent', context: 'participation' },
-    { id: 21, label: 'Absent', context: 'participation' },
-    { id: 22, label: 'Excusé', context: 'participation' },
+    { id: 18, code: 'registered', label: 'Inscrit', context: 'participation' },
+    { id: 19, code: 'confirmed', label: 'Confirmé', context: 'participation' },
+    { id: 20, code: 'present', label: 'Présent', context: 'participation' },
+    { id: 21, code: 'absent', label: 'Absent', context: 'participation' },
+    { id: 22, code: 'excused', label: 'Excusé', context: 'participation' },
 ]
 
 export const mockCategories: Category[] = [
@@ -105,7 +130,11 @@ export const mockPartnerLabs: PartnerLab[] = [
     { id: 5, lab_id: 3, partner_id: 4 },
 ]
 
-export const mockMembers: Member[] = [
+// `has_account` n'est pas écrit ligne à ligne mais dérivé plus bas de
+// `is_staff` : en mode fictif, les fiches de l'équipe sont exactement celles à
+// qui `mockOrgMember` donne un compte. Deux listes tenues à la main finiraient
+// par diverger, et l'écran de partage montrerait des retraits impossibles.
+const rawMembers: Omit<Member, 'has_account'>[] = [
     // Université X
     { id: 1, partner_id: 1, lab_id: 1, first_name: 'Marie', last_name: 'Dupont', position: 'Coordinatrice de projet', email: 'marie.dupont@univ.fr', tel: '0600000001', genre: 'F', status: 'Enseignant-chercheur', profile_image: '', is_staff: true },
     { id: 2, partner_id: 1, lab_id: 1, first_name: 'Thomas', last_name: 'Martin', position: 'Enseignant-chercheur', email: 'thomas.martin@univ.fr', tel: '0600000002', genre: 'M', status: 'Enseignant-chercheur', profile_image: '', is_staff: true },
@@ -132,6 +161,10 @@ export const mockMembers: Member[] = [
     { id: 18, partner_id: 6, lab_id: 0, first_name: 'Bruno', last_name: 'Morin', position: 'Analyste financier', email: 'b.morin@fondation.fr', tel: '0600000018', genre: 'M', status: 'Salarié', profile_image: '', is_staff: false },
 
 ]
+
+export const mockMembers: Member[] = rawMembers.map(m => ({
+    ...m, has_account: m.is_staff,
+}))
 
 export const mockGroup: Group[] = [
     { id: 1, name: 'Groupe de travail 1', owner_id: 1 },
@@ -230,9 +263,9 @@ export const mockActionCards: ActionCard[] = [
     { id: 42, owner_id: 12, category_id: 4, status_id: 2, title: 'Conférence de clôture programme', color: '', description: 'Organisation de la conférence finale du programme.', start_date: '2026-12-01', end_date: '2026-12-03' },
 
     // --- Sans date (pour le kanban) ---
-    { id: 43, owner_id: 2, category_id: 2, status_id: 5, title: 'Conception module e-learning', color: '', description: 'Concevoir un module e-learning sur les bonnes pratiques de recherche.', start_date: '', end_date: '' },
-    { id: 44, owner_id: 6, category_id: 4, status_id: 5, title: 'Définir protocole expérimental', color: '', description: 'Établir le protocole expérimental pour la phase 3 du projet de recherche.', start_date: '', end_date: '' },
-    { id: 45, owner_id: 3, category_id: 9, status_id: 5, title: 'Préparer dossier financement 2027', color: '', description: 'Constituer le dossier de demande de financement pour la période suivante.', start_date: '', end_date: '' },
+    { id: 43, owner_id: 2, category_id: 2, status_id: 2, title: 'Conception module e-learning', color: '', description: 'Concevoir un module e-learning sur les bonnes pratiques de recherche.', start_date: '', end_date: '' },
+    { id: 44, owner_id: 6, category_id: 4, status_id: 2, title: 'Définir protocole expérimental', color: '', description: 'Établir le protocole expérimental pour la phase 3 du projet de recherche.', start_date: '', end_date: '' },
+    { id: 45, owner_id: 3, category_id: 9, status_id: 2, title: 'Préparer dossier financement 2027', color: '', description: 'Constituer le dossier de demande de financement pour la période suivante.', start_date: '', end_date: '' },
 ]
 
 export const mockProjectCalls: ProjectCall[] = [
@@ -260,25 +293,25 @@ export const mockProjects: Project[] = [
     { id: 11, project_call_id: 1, status_id: 11, title: 'Projet Inclusion Numérique', description: 'Formation aux compétences numériques de base pour les publics éloignés de l\'emploi.', budget: 48000, start_date: '2024-02-01', end_date: '2025-06-30' },
     { id: 12, project_call_id: 3, status_id: 10, title: 'Projet European Grant HorizonX', description: 'Coordination d\'un projet Horizon Europe multi-partenaires sur la transition écologique.', budget: 450000, start_date: '2025-09-01', end_date: '2028-08-31' },
     // Projets courts 2026 pour heatmap variée
-    { id: 13, project_call_id: 1, status_id: 11, title: 'Audit interne S1 2026',             description: '', budget: 5000,  start_date: '2026-01-05', end_date: '2026-01-20' },
-    { id: 14, project_call_id: 2, status_id: 10, title: 'Kick-off partenariat AlphaLab',     description: '', budget: 8000,  start_date: '2026-01-10', end_date: '2026-01-30' },
-    { id: 15, project_call_id: 1, status_id: 11, title: 'Séminaire Axe 1 – Janvier',         description: '', budget: 3000,  start_date: '2026-01-18', end_date: '2026-01-25' },
+    { id: 13, project_call_id: 1, status_id: 11, title: 'Audit interne S1 2026', description: '', budget: 5000, start_date: '2026-01-05', end_date: '2026-01-20' },
+    { id: 14, project_call_id: 2, status_id: 10, title: 'Kick-off partenariat AlphaLab', description: '', budget: 8000, start_date: '2026-01-10', end_date: '2026-01-30' },
+    { id: 15, project_call_id: 1, status_id: 11, title: 'Séminaire Axe 1 – Janvier', description: '', budget: 3000, start_date: '2026-01-18', end_date: '2026-01-25' },
     { id: 16, project_call_id: 3, status_id: 10, title: 'Colloque régional Sciences&Société', description: '', budget: 12000, start_date: '2026-03-03', end_date: '2026-03-07' },
-    { id: 17, project_call_id: 4, status_id: 12, title: 'Sprint démonstrateur V2',            description: '', budget: 20000, start_date: '2026-03-09', end_date: '2026-03-28' },
-    { id: 18, project_call_id: 2, status_id: 10, title: 'Revue mi-parcours HorizonX',         description: '', budget: 6000,  start_date: '2026-03-15', end_date: '2026-03-20' },
-    { id: 19, project_call_id: 1, status_id: 11, title: 'Formation encadrants recherche',     description: '', budget: 9000,  start_date: '2026-03-22', end_date: '2026-04-04' },
-    { id: 20, project_call_id: 2, status_id: 10, title: 'Atelier IA & données territoriales', description: '', budget: 4000,  start_date: '2026-03-24', end_date: '2026-03-31' },
-    { id: 21, project_call_id: 3, status_id: 10, title: 'Mobilité entrante – Barcelone',      description: '', budget: 2500,  start_date: '2026-06-01', end_date: '2026-06-14' },
-    { id: 22, project_call_id: 1, status_id: 11, title: 'Bilan annuel formation',             description: '', budget: 5000,  start_date: '2026-06-08', end_date: '2026-06-30' },
-    { id: 23, project_call_id: 4, status_id: 12, title: 'Test pilote IoT – Phase 3',          description: '', budget: 18000, start_date: '2026-06-15', end_date: '2026-07-10' },
-    { id: 24, project_call_id: 2, status_id: 10, title: 'Conférence internationale SIGIR',    description: '', budget: 3500,  start_date: '2026-09-07', end_date: '2026-09-12' },
-    { id: 25, project_call_id: 3, status_id: 10, title: 'Rentrée scientifique 2026',          description: '', budget: 7000,  start_date: '2026-09-01', end_date: '2026-09-15' },
-    { id: 26, project_call_id: 1, status_id: 11, title: 'AAP Automne – Instruction dossiers', description: '', budget: 4000,  start_date: '2026-09-14', end_date: '2026-10-09' },
-    { id: 27, project_call_id: 4, status_id: 12, title: 'Séminaire transfert brevet',         description: '', budget: 6000,  start_date: '2026-09-21', end_date: '2026-09-30' },
-    { id: 28, project_call_id: 2, status_id: 10, title: 'Hackathon Open Data',                description: '', budget: 5000,  start_date: '2026-09-25', end_date: '2026-10-02' },
-    { id: 29, project_call_id: 1, status_id: 11, title: 'Clôture projets T4',                 description: '', budget: 3000,  start_date: '2026-11-02', end_date: '2026-11-20' },
-    { id: 30, project_call_id: 3, status_id: 10, title: 'Bilan mobilités Europe',             description: '', budget: 4000,  start_date: '2026-11-09', end_date: '2026-11-27' },
-    { id: 31, project_call_id: 4, status_id: 12, title: 'Rapport final Smart Campus',         description: '', budget: 8000,  start_date: '2026-11-16', end_date: '2026-12-05' },
+    { id: 17, project_call_id: 4, status_id: 12, title: 'Sprint démonstrateur V2', description: '', budget: 20000, start_date: '2026-03-09', end_date: '2026-03-28' },
+    { id: 18, project_call_id: 2, status_id: 10, title: 'Revue mi-parcours HorizonX', description: '', budget: 6000, start_date: '2026-03-15', end_date: '2026-03-20' },
+    { id: 19, project_call_id: 1, status_id: 11, title: 'Formation encadrants recherche', description: '', budget: 9000, start_date: '2026-03-22', end_date: '2026-04-04' },
+    { id: 20, project_call_id: 2, status_id: 10, title: 'Atelier IA & données territoriales', description: '', budget: 4000, start_date: '2026-03-24', end_date: '2026-03-31' },
+    { id: 21, project_call_id: 3, status_id: 10, title: 'Mobilité entrante – Barcelone', description: '', budget: 2500, start_date: '2026-06-01', end_date: '2026-06-14' },
+    { id: 22, project_call_id: 1, status_id: 11, title: 'Bilan annuel formation', description: '', budget: 5000, start_date: '2026-06-08', end_date: '2026-06-30' },
+    { id: 23, project_call_id: 4, status_id: 12, title: 'Test pilote IoT – Phase 3', description: '', budget: 18000, start_date: '2026-06-15', end_date: '2026-07-10' },
+    { id: 24, project_call_id: 2, status_id: 10, title: 'Conférence internationale SIGIR', description: '', budget: 3500, start_date: '2026-09-07', end_date: '2026-09-12' },
+    { id: 25, project_call_id: 3, status_id: 10, title: 'Rentrée scientifique 2026', description: '', budget: 7000, start_date: '2026-09-01', end_date: '2026-09-15' },
+    { id: 26, project_call_id: 1, status_id: 11, title: 'AAP Automne – Instruction dossiers', description: '', budget: 4000, start_date: '2026-09-14', end_date: '2026-10-09' },
+    { id: 27, project_call_id: 4, status_id: 12, title: 'Séminaire transfert brevet', description: '', budget: 6000, start_date: '2026-09-21', end_date: '2026-09-30' },
+    { id: 28, project_call_id: 2, status_id: 10, title: 'Hackathon Open Data', description: '', budget: 5000, start_date: '2026-09-25', end_date: '2026-10-02' },
+    { id: 29, project_call_id: 1, status_id: 11, title: 'Clôture projets T4', description: '', budget: 3000, start_date: '2026-11-02', end_date: '2026-11-20' },
+    { id: 30, project_call_id: 3, status_id: 10, title: 'Bilan mobilités Europe', description: '', budget: 4000, start_date: '2026-11-09', end_date: '2026-11-27' },
+    { id: 31, project_call_id: 4, status_id: 12, title: 'Rapport final Smart Campus', description: '', budget: 8000, start_date: '2026-11-16', end_date: '2026-12-05' },
 ]
 
 export const mockFinancialAgreements: FinancialAgreement[] = [
@@ -377,14 +410,14 @@ export const mockToDoLists: ToDoList[] = [
 ]
 
 export const mockToDoItems: ToDoItem[] = [
-    { id: 1, list_id: 1, content: 'Réserver la salle', status_id: 9, start_date: '2025-08-01', end_time: '2025-08-15', due_date: '2025-08-10' },
-    { id: 2, list_id: 1, content: 'Envoyer les invitations', status_id: 9, start_date: '2025-08-15', end_time: '2025-08-30', due_date: '2025-08-25' },
-    { id: 3, list_id: 2, content: 'Collecter les indicateurs', status_id: 9, start_date: '2025-06-01', end_time: '2025-06-15', due_date: '' },
-    { id: 4, list_id: 2, content: 'Rédiger la synthèse', status_id: 9, start_date: '2025-06-15', end_time: '2025-06-25', due_date: '' },
-    { id: 5, list_id: 3, content: 'Préparer les supports', status_id: 8, start_date: '2026-04-25', end_time: '2026-05-01', due_date: '2026-04-30' },
-    { id: 6, list_id: 3, content: 'Inviter les participants', status_id: 8, start_date: '2026-04-28', end_time: '2026-05-05', due_date: '' },
-    { id: 7, list_id: 4, content: 'Envoyer l\'ordre du jour', status_id: 8, start_date: '2026-05-28', end_time: '2026-06-01', due_date: '2026-05-30' },
-    { id: 8, list_id: 4, content: 'Préparer les indicateurs', status_id: 8, start_date: '2026-05-28', end_time: '2026-06-04', due_date: '' },
+    { id: 1, list_id: 1, content: 'Réserver la salle', status_id: 9, start_date: '2025-08-01', end_time: '2025-08-15', due_date: '2025-08-10', member_id: 2 },
+    { id: 2, list_id: 1, content: 'Envoyer les invitations', status_id: 9, start_date: '2025-08-15', end_time: '2025-08-30', due_date: '2025-08-25', member_id: 1 },
+    { id: 3, list_id: 2, content: 'Collecter les indicateurs', status_id: 9, start_date: '2025-06-01', end_time: '2025-06-15', due_date: '', member_id: 2 },
+    { id: 4, list_id: 2, content: 'Rédiger la synthèse', status_id: 9, start_date: '2025-06-15', end_time: '2025-06-25', due_date: '', member_id: 1 },
+    { id: 5, list_id: 3, content: 'Préparer les supports', status_id: 8, start_date: '2026-04-25', end_time: '2026-05-01', due_date: '2026-04-30', member_id: null },
+    { id: 6, list_id: 3, content: 'Inviter les participants', status_id: 8, start_date: '2026-04-28', end_time: '2026-05-05', due_date: '', member_id: 3 },
+    { id: 7, list_id: 4, content: 'Envoyer l\'ordre du jour', status_id: 8, start_date: '2026-05-28', end_time: '2026-06-01', due_date: '2026-05-30', member_id: 4 },
+    { id: 8, list_id: 4, content: 'Préparer les indicateurs', status_id: 8, start_date: '2026-05-28', end_time: '2026-06-04', due_date: '', member_id: null },
 ]
 
 export const mockMemberActionCards: MemberActionCard[] = [
@@ -441,14 +474,14 @@ export const mockMemberActionCards: MemberActionCard[] = [
     { id: 36, member_id: 12, action_card_id: 9, role: 'Responsable' },
     { id: 37, member_id: 2, action_card_id: 13, role: 'Responsable' },
     // Participants avec statut de participation (carte 1 = Séminaire de lancement)
-    { id: 38, member_id: 6,  action_card_id: 1, role: 'Participant', participation_status_id: 20 },
-    { id: 39, member_id: 7,  action_card_id: 1, role: 'Participant', participation_status_id: 19 },
-    { id: 40, member_id: 8,  action_card_id: 1, role: 'Participant', participation_status_id: 21 },
-    { id: 41, member_id: 9,  action_card_id: 1, role: 'Participant', participation_status_id: 18 },
+    { id: 38, member_id: 6, action_card_id: 1, role: 'Participant', participation_status_id: 20 },
+    { id: 39, member_id: 7, action_card_id: 1, role: 'Participant', participation_status_id: 19 },
+    { id: 40, member_id: 8, action_card_id: 1, role: 'Participant', participation_status_id: 21 },
+    { id: 41, member_id: 9, action_card_id: 1, role: 'Participant', participation_status_id: 18 },
     { id: 42, member_id: 10, action_card_id: 1, role: 'Participant', participation_status_id: 22 },
     // Participants carte 7 = Réunion comité de pilotage
-    { id: 43, member_id: 4,  action_card_id: 7, role: 'Participant', participation_status_id: 19 },
-    { id: 44, member_id: 5,  action_card_id: 7, role: 'Participant', participation_status_id: 18 },
+    { id: 43, member_id: 4, action_card_id: 7, role: 'Participant', participation_status_id: 19 },
+    { id: 44, member_id: 5, action_card_id: 7, role: 'Participant', participation_status_id: 18 },
     { id: 45, member_id: 11, action_card_id: 7, role: 'Participant' },
 ]
 
@@ -577,9 +610,9 @@ export const mockProjectMembers: ProjectMember[] = [
     { id: 30, project_id: 12, member_id: 12, role: 'Partenaire' },
     { id: 31, project_id: 12, member_id: 17, role: 'Partenaire' },
     // Projet 1 — Participants (pour test suivi de participation)
-    { id: 32, project_id: 1, member_id: 6,  role: 'Participant', participation_status_id: 20 },
-    { id: 33, project_id: 1, member_id: 8,  role: 'Participant', participation_status_id: 19 },
-    { id: 34, project_id: 1, member_id: 9,  role: 'Participant' },
+    { id: 32, project_id: 1, member_id: 6, role: 'Participant', participation_status_id: 20 },
+    { id: 33, project_id: 1, member_id: 8, role: 'Participant', participation_status_id: 19 },
+    { id: 34, project_id: 1, member_id: 9, role: 'Participant' },
     { id: 35, project_id: 1, member_id: 10, role: 'Participant', participation_status_id: 21 },
 ]
 
@@ -741,13 +774,45 @@ export const mockProjectAttachments: ProjectAttachment[] = [
 
 // Un seul laboratoire : le mode mock n'a pas de session, donc pas de sélecteur
 // à éprouver. Il est là pour que l'en-tête ait un nom à afficher.
-export const mockOrganizations: Organization[] = [
-    { id: 1, name: "Laboratoire de démonstration", slug: "demo" },
+export const mockOrganizations: OrganizationTree[] = [
+    { id: 1, name: "Laboratoire de démonstration", slug: "demo", programs: [{ pfi: "", description: '', budget: 0, start_date: "", end_date: '', id: 1, name: "Programme principal", logo: '', management_fee_rate: 0 }] },
 ]
 
 export const mockProgram: Program[] = [
     { id: 1, pfi: "PFI001", name: "Iris-E", budget: 20000000, start_date: "2023-01-01", end_date: "2032-12-31", description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut varius diam quis commodo euismod. Nulla facilisi. Nulla facilisi. Vestibulum nibh turpis, viverra eget sapien sit amet, euismod venenatis neque. Nunc dictum dolor id augue varius accumsan. Integer vestibulum a urna sit amet aliquam.", logo: "", management_fee_rate: 8 }
 ]
+
+// Tout l'annuaire dans l'unique programme, et engendré plutôt qu'écrit à la
+// main : le jeu fictif n'a pas de second programme où répartir les fiches, et
+// la démonstration doit continuer à montrer l'annuaire entier. Le basculement
+// de périmètre reste éprouvable en retirant une affectation depuis la fiche.
+// `is_admin` sur la seule fiche 1, celle que le `fetchMe()` fictif se donne :
+// l'écran de partage doit montrer les deux états, et un laboratoire où tout le
+// monde administre ne les distinguerait pas.
+export const mockProgramMember: ProgramMember[] = mockMembers.map((m, i) => ({
+    id: i + 1, member_id: m.id, program_id: mockProgram[0].id, role: '',
+    is_admin: i === 0,
+}))
+
+// Les comptes du laboratoire fictif. Seules les fiches `is_staff` en ont un :
+// l'annuaire contient surtout des contacts de partenaires, qui figurent dans
+// le laboratoire sans y avoir accès — c'est précisément la distinction que
+// l'écran de partage doit rendre visible.
+//
+// Le premier est propriétaire parce que le `fetchMe()` fictif se dit tel, et
+// que la fiche 1 est la sienne : sans cette concordance, l'écran proposerait
+// de modifier un rattachement qui n'est celui de personne.
+export const mockOrgMember: OrgMember[] = mockMembers
+    .filter(m => m.is_staff)
+    .map((m, i) => ({
+        id: i + 1,
+        email: m.email,
+        first_name: m.first_name,
+        last_name: m.last_name,
+        member_id: m.id,
+        is_owner: i === 0,
+        created_at: '2024-01-01T00:00:00Z',
+    }))
 
 // `sifac_code` volontairement vide sur une partie des fiches : ce sont les
 // fournisseurs saisis à la main avant l'arrivée de SIFAC. Ils permettent de

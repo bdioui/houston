@@ -319,7 +319,7 @@ export default function ActionCardSheet({ open, onClose, onCreated, editCard, on
                     description: form.description || undefined,
                     start_date:  form.start_date  || undefined,
                     end_date:    form.end_date     || undefined,
-                    status:      { id: status.id, label: status.label, context: status.context },
+                    status:      { id: status.id, code: status.code, label: status.label, context: status.context },
                     category: {
                         id:     category.id,
                         title:  category.title,

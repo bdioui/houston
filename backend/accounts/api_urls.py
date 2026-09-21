@@ -7,10 +7,18 @@ l'espace de noms de l'authentification.
 
 from rest_framework.routers import DefaultRouter
 
-from .views import InvitationViewSet, OrganizationViewSet
+from .views import (
+    InvitationViewSet,
+    OrganizationMemberViewSet,
+    OrganizationViewSet,
+)
 
 router = DefaultRouter()
 router.register("organizations", OrganizationViewSet, basename="organization")
+# Les rattachements déjà en place, quand `invitations` couvre ceux à venir.
+router.register(
+    "organization-members", OrganizationMemberViewSet, basename="organization-member",
+)
 # Émettre et révoquer, côté laboratoire — donc cloisonné comme le reste.
 # *Accepter* vit sous `/api/auth/` : c'est un geste d'authentification, qui
 # ouvre une session et parfois crée un compte, et qui se fait sans contexte.

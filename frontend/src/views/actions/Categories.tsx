@@ -32,6 +32,7 @@ function toCardData(card: ActionCardFull): ActionCardData {
         description: card.description || undefined,
         status: {
             id:      card.status.id,
+            code:    card.status.code,
             label:   card.status.label,
             context: card.status.context,
         },

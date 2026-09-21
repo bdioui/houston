@@ -10,11 +10,11 @@ import {
     mockProjectPartners, mockProjectMilestones,
     mockTimeEntry,
     mockFormations, mockProjectFormations, mockProjectAttachments,
-    mockOrganizations, mockProgram, mockExpanses, mockSuppliers, mockSifacLines,
+    mockOrganizations, mockProgram, mockProgramMember, mockOrgMember, mockExpanses, mockSuppliers, mockSifacLines,
     mockPublications, mockPublicationMembers,
 } from '@/lib/mock'
 import type {
-    Status, Category, Member, Partner, Axis, Lab, PartnerLab, LabCardFull,
+    Status, Category, Member, MemberDraft, Partner, Axis, Lab, PartnerLab, LabCardFull,
     ActionCard, ActionCardFull, PartnerCardFull, ProjectCall, Project,
     FinancialAgreement, Phd, MobilityGrant,
     Kpi, BudgetCategory, BudgetDetail,
@@ -25,13 +25,15 @@ import type {
     Organization,
     Invitation,
     InvitationPreview,
-    OrgRole,
+    OrgMember,
     Program,
+    ProgramMember,
     Expanse,
     SifacLine,
     Supplier,
     Publication,
     PublicationMember,
+    OrganizationTree,
 } from '@/lib/types'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
@@ -41,8 +43,8 @@ const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 // la liste à ses rattachements. C'est aussi la seule collection qui reste
 // joignable quand aucun laboratoire n'est actif, sans quoi un compte affecté à
 // plusieurs n'aurait aucun moyen d'en choisir un.
-export async function getOrganizations(): Promise<Organization[]> {
-    return USE_MOCK ? mockOrganizations : http.get<Organization[]>('/organizations/')
+export async function getOrganizations(): Promise<OrganizationTree[]> {
+    return USE_MOCK ? mockOrganizations : http.get<OrganizationTree[]>('/organizations/')
 }
 
 // Même forme que selectProgram, et pour les mêmes raisons — sauf que celui-ci
@@ -52,6 +54,10 @@ export async function getOrganizations(): Promise<Organization[]> {
 export async function selectOrganization(id: number): Promise<Organization> {
     if (USE_MOCK) return mockOrganizations.find(o => o.id === id) as Organization
     return http.post<Organization>(`/organizations/${id}/select/`)
+}
+
+export async function createOrganization(name: string): Promise<Organization> {
+    return http.post<Organization>('/organizations/', { organization_name: name })
 }
 
 // --- Invitations ---
@@ -68,8 +74,14 @@ export async function selectOrganization(id: number): Promise<Organization> {
 // Aucune branche mock ici, et c'est délibéré : en mode fictif `fetchMe()` rend
 // un utilisateur d'emblée, il n'y a ni compte à créer ni laboratoire à
 // rejoindre. Ces fonctions restent inatteignables, comme login() et signup().
-export async function getInvitations(): Promise<Invitation[]> {
-    return http.get<Invitation[]>('/invitations/')
+// `programId` réduit aux invitations émises vers ce programme. L'écran de
+// partage s'en sert parce qu'il décrit un programme et non le laboratoire
+// entier : y montrer les invitations d'un programme voisin laisserait croire
+// qu'on attend quelqu'un qui ne viendra pas ici.
+export async function getInvitations(programId?: number): Promise<Invitation[]> {
+    return http.get<Invitation[]>(
+        programId === undefined ? '/invitations/' : `/invitations/?program_id=${programId}`,
+    )
 }
 
 // Le retour porte `token` et `accept_url`, que la liste ne redonnera jamais :
@@ -85,7 +97,7 @@ export async function createInvitation(payload: {
     email: string
     program_id: number
     member_id?: number | null
-    role?: OrgRole
+    is_program_admin?: boolean
     first_name?: string
     last_name?: string
 }): Promise<Invitation> {
@@ -94,6 +106,47 @@ export async function createInvitation(payload: {
 
 export async function revokeInvitation(id: number): Promise<void> {
     return http.del(`/invitations/${id}/`)
+}
+
+// --- Rattachements au laboratoire ---
+// L'autre moitié de l'écran de partage : les comptes déjà là, quand les
+// invitations couvrent ceux qu'on attend. Pas de création — on n'entre dans un
+// laboratoire que par invitation.
+//
+// La lecture est ouverte à tout le laboratoire, les deux écritures au seul
+// propriétaire, et le serveur refuse en 400 qu'on touche à son propre
+// rattachement : renoncer à la propriété fermerait l'écran sur son auteur.
+export async function getOrgMembers(): Promise<OrgMember[]> {
+    if (USE_MOCK) return mockOrgMember
+    return http.get<OrgMember[]>('/organization-members/')
+}
+
+// Transmettre la propriété du laboratoire. Le seul champ inscriptible de la
+// collection, et le geste le plus lourd de l'application : il donne à quelqu'un
+// d'autre ce qu'on détient. Il reste ouvert parce que sans lui un propriétaire
+// parti emporterait le laboratoire — plus personne n'y créerait de programme ni
+// n'y inviterait qui que ce soit.
+//
+// Se le retirer à soi-même est refusé en 400 : c'est ce seul garde-fou qui
+// garantit qu'il reste toujours un propriétaire, sans avoir à les compter.
+export async function setOrgMemberOwner(id: number, isOwner: boolean): Promise<OrgMember> {
+    if (USE_MOCK) {
+        const row = mockOrgMember.find(o => o.id === id)!
+        row.is_owner = isOwner
+        return row
+    }
+    return http.patch<OrgMember>(`/organization-members/${id}/`, { is_owner: isOwner })
+}
+
+// Retire l'accès, pas la personne : la fiche annuaire et ses affectations
+// survivent, et redeviennent disponibles pour une invitation ultérieure.
+export async function removeOrgMember(id: number): Promise<void> {
+    if (USE_MOCK) {
+        const i = mockOrgMember.findIndex(o => o.id === id)
+        if (i !== -1) mockOrgMember.splice(i, 1)
+        return
+    }
+    return http.del(`/organization-members/${id}/`)
 }
 
 export async function fetchInvitation(token: string): Promise<InvitationPreview> {
@@ -122,6 +175,88 @@ export async function selectProgram(id: number): Promise<Program> {
     return http.post<Program>(`/programs/${id}/select/`)
 }
 
+// --- Affectations à un programme ---
+// Le serveur ne rend que les affectations des programmes du titulaire, et
+// n'accepte d'en écrire que là aussi : l'affectation *est* l'autorisation que
+// vérifie le middleware, en donner une vers un programme voisin reviendrait à
+// s'en ouvrir l'accès. Un `program_id` étranger ressort donc en 400.
+//
+// Une seconde règle s'y ajoute en écriture, et elle porte sur la *fiche* et non
+// sur le programme : affecter un contact sans compte est de la saisie, ouverte
+// à toute l'équipe ; affecter une fiche titulaire d'un compte donne un accès, et
+// n'appartient qu'aux administrateurs du programme. D'où `Member.has_account`,
+// sans quoi le front grèverait les deux cas ou aucun.
+export async function getProgramMembers(memberId?: number): Promise<ProgramMember[]> {
+    if (USE_MOCK) {
+        return memberId === undefined
+            ? mockProgramMember
+            : mockProgramMember.filter(l => l.member_id === memberId)
+    }
+    return http.get<ProgramMember[]>(
+        memberId === undefined ? '/program-members/' : `/program-members/?member_id=${memberId}`,
+    )
+}
+
+export async function addProgramMember(
+    memberId: number, programId: number, isAdmin = false,
+): Promise<ProgramMember> {
+    if (USE_MOCK) {
+        const link: ProgramMember = {
+            id: Math.max(0, ...mockProgramMember.map(l => l.id)) + 1,
+            member_id: memberId, program_id: programId, role: '', is_admin: isAdmin,
+        }
+        mockProgramMember.push(link)
+        return link
+    }
+    return http.post<ProgramMember>('/program-members/', {
+        member_id: memberId, program_id: programId, is_admin: isAdmin,
+    })
+}
+
+// Nommer ou destituer un administrateur de programme. Les deux sens sont gardés
+// de la même façon côté serveur : un titre qu'on n'a pas ne se distribue ni ne
+// se reprend.
+export async function setProgramMemberAdmin(
+    linkId: number, isAdmin: boolean,
+): Promise<ProgramMember> {
+    if (USE_MOCK) {
+        const link = mockProgramMember.find(l => l.id === linkId)!
+        link.is_admin = isAdmin
+        return link
+    }
+    return http.patch<ProgramMember>(`/program-members/${linkId}/`, { is_admin: isAdmin })
+}
+
+export async function removeProgramMember(linkId: number): Promise<void> {
+    if (USE_MOCK) {
+        const i = mockProgramMember.findIndex(l => l.id === linkId)
+        if (i !== -1) mockProgramMember.splice(i, 1)
+        return
+    }
+    await http.del(`/program-members/${linkId}/`)
+}
+
+// Le serveur affecte l'auteur au programme qu'il crée (`perform_create`) : sans
+// cela il ne le verrait pas, la liste étant réduite aux affectations. Il ne le
+// *sélectionne* pas pour autant — c'est à l'appelant d'enchaîner sur
+// `selectProgram` s'il veut y atterrir.
+export async function createProgram(
+    payload: Pick<Program, 'name' | 'pfi' | 'budget' | 'start_date' | 'end_date'>,
+): Promise<Program> {
+    if (USE_MOCK) {
+        const created: Program = {
+            id: Math.max(0, ...mockProgram.map(p => p.id)) + 1,
+            description: '', logo: '', management_fee_rate: null, ...payload,
+        }
+        mockProgram.push(created)
+        // L'arbre est la seconde source : c'est lui que lit la barre latérale,
+        // et le serveur y ferait apparaître le programme via l'affectation.
+        mockOrganizations[0]?.programs.push(created)
+        return created
+    }
+    return http.post<Program>('/programs/', payload)
+}
+
 export async function updateProgram(id: number, patch: Partial<Omit<Program, 'id'>>): Promise<void> {
     if (USE_MOCK) {
         const p = mockProgram.find(p => p.id === id)
@@ -132,7 +267,14 @@ export async function updateProgram(id: number, patch: Partial<Omit<Program, 'id
 }
 export async function getStatuses(): Promise<Status[]> { return USE_MOCK ? mockStatuses : http.get<Status[]>('/statuses/') }
 export async function getCategories(): Promise<Category[]> { return USE_MOCK ? mockCategories : http.get<Category[]>('/categories/') }
-export async function getMembers(): Promise<Member[]> { return USE_MOCK ? mockMembers : http.get<Member[]>('/members/') }
+export async function getMembers(programId?: number): Promise<Member[]> {
+    if (USE_MOCK) {
+        if (programId === undefined) return mockMembers
+        const ids = mockProgramMember.filter(l => l.program_id === programId).map(l => l.member_id)
+        return mockMembers.filter(m => ids.includes(m.id))
+    }
+    return http.get<Member[]>(programId === undefined ? '/members/' : `/members/?program_id=${programId}`)
+}
 export async function getGroups(): Promise<Group[]> { return USE_MOCK ? mockGroup : http.get<Group[]>('/groups/') }
 export async function getGroupMembers(): Promise<GroupMember[]> { return USE_MOCK ? mockGroupMember : http.get<GroupMember[]>('/group-members/') }
 export async function getPartners(): Promise<Partner[]> { return USE_MOCK ? mockPartners : http.get<Partner[]>('/partners/') }
@@ -583,7 +725,7 @@ export async function getToDoListsWithItemsByCard(cardId: number): Promise<(ToDo
 
 // --- Mutations sur les éléments d'une ActionCard ---
 
-export async function updateToDoItem(id: number, patch: Partial<Pick<ToDoItem, 'content' | 'status_id' | 'start_date' | 'end_time' | 'due_date'>>): Promise<void> {
+export async function updateToDoItem(id: number, patch: Partial<Pick<ToDoItem, 'content' | 'status_id' | 'start_date' | 'end_time' | 'due_date' | 'member_id'>>): Promise<void> {
     if (USE_MOCK) {
         const item = mockToDoItems.find(i => i.id === id)
         if (item) Object.assign(item, patch)
@@ -592,17 +734,20 @@ export async function updateToDoItem(id: number, patch: Partial<Pick<ToDoItem, '
     await http.patch(`/todo-items/${id}/`, patch)
 }
 
-export async function addToDoItemToList(listId: number, content: string, due_date = ''): Promise<ToDoItem> {
+// `statusId` est passé par l'appelant plutôt que résolu ici : ce module ne
+// charge pas le référentiel, et l'écran qui crée l'item l'a déjà sous la main.
+export async function addToDoItemToList(listId: number, statusId: number, content: string, due_date = '', member_id: number | null): Promise<ToDoItem> {
     if (USE_MOCK) {
         const newId = Math.max(0, ...mockToDoItems.map(i => i.id)) + 1
-        const item: ToDoItem = { id: newId, list_id: listId, content, status_id: 8, start_date: '', end_time: '', due_date }
+        const item: ToDoItem = { id: newId, list_id: listId, content, status_id: statusId, start_date: '', end_time: '', due_date, member_id }
         mockToDoItems.push(item)
         return item
     }
     // `due_date` n'est posée que si elle est renseignée : `''` n'est pas une
     // date pour Django, qui rendrait 400 là où Grist acceptait la chaîne vide.
-    const fields: Record<string, unknown> = { list_id: listId, content, status_id: 8 }
+    const fields: Record<string, unknown> = { list_id: listId, content, status_id: statusId }
     if (due_date) fields.due_date = due_date
+    if (member_id) fields.member_id = member_id
     return http.post<ToDoItem>('/todo-items/', fields)
 }
 
@@ -811,11 +956,14 @@ export async function removeAgreementFromCard(linkId: number): Promise<void> {
 
 // --- Membres ---
 
-export async function getMembersFull(): Promise<MemberFull[]> {
-    const [members, partners, labs] = await (USE_MOCK
-        ? Promise.resolve([mockMembers, mockPartners, mockLabs])
-        : Promise.all([getMembers(), getPartners(), getLabs()])
-    )
+// `programId` réduit à l'équipe du programme, via la table d'affectation. Sans
+// lui, tout le laboratoire : c'est ce que veulent les appelants qui résolvent
+// un nom d'auteur ou remplissent un sélecteur, et qui n'ont que faire du
+// découpage.
+export async function getMembersFull(programId?: number): Promise<MemberFull[]> {
+    const [members, partners, labs] = await Promise.all([
+        getMembers(programId), getPartners(), getLabs(),
+    ])
     const partnerMap = new Map((partners as Partner[]).map(p => [p.id, p]))
     const labMap = new Map((labs as Lab[]).map(l => [l.id, l]))
     return (members as Member[]).map(m => ({
@@ -851,10 +999,12 @@ export async function getLabCardsFull(): Promise<LabCardFull[]> {
     }))
 }
 
-export async function addMember(fields: Omit<Member, 'id'>): Promise<Member> {
+// `has_account` est exclu comme `id` : le serveur le calcule, personne ne
+// l'écrit. Une fiche ne fabrique pas de compte — seule une invitation le fait.
+export async function addMember(fields: MemberDraft): Promise<Member> {
     if (USE_MOCK) {
         const newId = Math.max(0, ...mockMembers.map(m => m.id)) + 1
-        const member: Member = { id: newId, ...fields }
+        const member: Member = { id: newId, has_account: false, ...fields }
         mockMembers.push(member)
         return member
     }
@@ -865,7 +1015,7 @@ export async function addMember(fields: Omit<Member, 'id'>): Promise<Member> {
     return http.post<Member>('/members/', fields)
 }
 
-export async function updateMember(id: number, patch: Partial<Omit<Member, 'id'>>): Promise<void> {
+export async function updateMember(id: number, patch: Partial<MemberDraft>): Promise<void> {
     if (USE_MOCK) {
         const m = mockMembers.find(m => m.id === id)
         if (m) Object.assign(m, patch)
@@ -1424,12 +1574,14 @@ export async function deleteActionCard(id: number): Promise<void> {
 // sont pas de la tolérance aux données sales : `owner`, `category` et `status`
 // sont tous `null=True` côté Django, et `ActionCardFull` promet des objets. Sans
 // eux, la vue lirait `.label` sur `undefined` au premier rendu.
-const FALLBACK_STATUS: Status = { id: 0, label: '—', context: 'action_card' }
+// `todo` et non un code inventé : le substitut doit se comporter comme un
+// statut ouvert, sinon une carte sans statut sortirait des alertes d'échéance.
+const FALLBACK_STATUS: Status = { id: 0, code: 'todo', label: '—', context: 'action_card' }
 const FALLBACK_CATEGORY: Category = { id: 0, title: '—', parent_category_id: null, color: null }
 const FALLBACK_MEMBER: Member = {
     id: 0, partner_id: null, lab_id: null, first_name: '?', last_name: '',
     position: '', email: '', tel: '', genre: '', status: '', profile_image: '',
-    is_staff: false,
+    is_staff: false, has_account: false,
 }
 
 function joinActionCards(

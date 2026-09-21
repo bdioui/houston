@@ -31,6 +31,7 @@ function toCardData(card: ActionCardFull): ActionCardData {
         description: card.description || undefined,
         status: {
             id:      card.status.id,
+            code:    card.status.code,
             label:   card.status.label,
             context: card.status.context,
         },
@@ -273,7 +274,7 @@ export default function Tasks() {
         const status = statuses.find(s => s.id === targetStatusId)
         if (!status) return
 
-        const targetStatus = { id: status.id, label: status.label, context: status.context }
+        const targetStatus = { id: status.id, code: status.code, label: status.label, context: status.context }
 
         setCards(prev => prev.map(c =>
             c.id === active.id ? { ...c, status: targetStatus } : c

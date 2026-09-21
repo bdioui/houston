@@ -104,6 +104,7 @@ class ToDoItem(ProgramModel):
         "common.Status", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="todo_items",
     )
+    member = models.ForeignKey(Member, on_delete=models.SET_NULL, null=True, blank=True, related_name="todo_items")
     start_date = models.DateField(null=True, blank=True)
     # Une date malgré son nom, hérité de Grist (src/lib/mock/index.ts:379).
     end_time = models.DateField(null=True, blank=True)

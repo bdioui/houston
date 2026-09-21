@@ -51,7 +51,8 @@ import {
     getPublicationMembersByProject, addPublicationMember, deletePublicationMember,
     getLabs,
 } from '@/lib/api'
-import { type ProjectCall, type Project, type FinancialAgreement, type Axis, type Status, type Partner, type Member, type ProjectMember, type Kpi, type KpiEntry, type ProjectPartner, type ProjectMilestone, type ActionCardFull, type Category, type TimeEntry, type Formation, type ProjectFormation, type ProjectAttachment, type Expanse, type Supplier, type BudgetCategory, type BudgetDetail, type Publication, type PublicationMember, type Lab } from '@/lib/types'
+import { type ProjectCall, type Project, type FinancialAgreement, type Axis, type Status, type LifecycleCode, type Partner, type Member, type ProjectMember, type Kpi, type KpiEntry, type ProjectPartner, type ProjectMilestone, type ActionCardFull, type Category, type TimeEntry, type Formation, type ProjectFormation, type ProjectAttachment, type Expanse, type Supplier, type BudgetCategory, type BudgetDetail, type Publication, type PublicationMember, type Lab } from '@/lib/types'
+import { codeOf, defaultStatusId, LIFECYCLE_ORDER, paletteColor } from '@/lib/status'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import SearchInput from '@/components/SearchInput'
@@ -60,18 +61,16 @@ import { ScrollableTabBar } from '@/components/ScrollableTabBar'
 
 // --- Couleurs de statut ---
 
-const PROJECT_STATUS_COLORS: Record<string, string> = {
-    'En cours':   '#d1fae5',
-    'Terminé':    '#f3f4f6',
-    'Suspendu':   '#fef9c3',
-    'En attente': '#dbeafe',
-}
-
-const AGREEMENT_STATUS_COLORS: Record<string, string> = {
-    'En préparation': '#dbeafe',
-    'Active':         '#d1fae5',
-    'Soldée':         '#f3f4f6',
-    'Annulée':        '#fee2e2',
+// Indexées par `code` et non par libellé. Un même code porte un vocabulaire
+// différent selon le contexte — « Soldée » pour une convention, « Terminé »
+// pour un projet — donc deux tables de libellés étaient nécessaires là où une
+// seule table de codes suffit.
+const LIFECYCLE_COLORS: Record<LifecycleCode, string> = {
+    active:    '#d1fae5',
+    done:      '#f3f4f6',
+    on_hold:   '#fef9c3',
+    todo:      '#dbeafe',
+    cancelled: '#fee2e2',
 }
 
 const ROLES = [
@@ -86,8 +85,6 @@ const ROLES = [
 ]
 
 const ROLE_ORDER = ['Porteur', 'Prospect', 'Equipe - Lead', 'Equipe - Contributeur', 'Equipe - Consultant', 'Equipe - Observateur', 'Intervenant', , 'Participant']
-
-const STATUS_ORDER = ["En cours", "Suspendu", "En attente", "Terminé",]
 
 const PARTNER_ROLES = ['Associé', 'Bénéficiaire', 'Cofinanceur', 'Sous-traitant']
 
@@ -204,7 +201,7 @@ function ProjectCard({ project, agreements, statuses, onClick, selectOn, selecte
                 <div className="flex items-center gap-1.5 shrink-0">
                     {status && (
                         <Badge variant="secondary" className="text-xs rounded-full text-black"
-                            style={{ backgroundColor: PROJECT_STATUS_COLORS[status.label] ?? '#f3f4f6' }}>
+                            style={{ backgroundColor: paletteColor(LIFECYCLE_COLORS, status.code, '#f3f4f6') }}>
                             {status.label}
                         </Badge>
                     )}
@@ -672,7 +669,7 @@ function AgreementDetailDialog({ open, onClose, agreement, partners, statuses, a
                                 {status && (
                                     <span
                                         className="text-xs px-1.5 py-0.5 rounded-full border border-border text-black"
-                                        style={{ backgroundColor: AGREEMENT_STATUS_COLORS[status.label] ?? '#f3f4f6' }}
+                                        style={{ backgroundColor: paletteColor(LIFECYCLE_COLORS, status.code, '#f3f4f6') }}
                                     >
                                         {status.label}
                                     </span>
@@ -771,7 +768,7 @@ function AgreementRow({ agreement: a, statuses, axe, onEdit, onDelete, onOpen }:
                             )}
                             {status && (
                                 <span className="text-xs px-1.5 py-0.5 rounded-full border border-border shrink-0 text-black"
-                                    style={{ backgroundColor: AGREEMENT_STATUS_COLORS[status.label] ?? '#f3f4f6' }}>
+                                    style={{ backgroundColor: paletteColor(LIFECYCLE_COLORS, status.code, '#f3f4f6') }}>
                                     {status.label}
                                 </span>
                             )}
@@ -830,12 +827,15 @@ type AgreementFormProps = {
 
 function AgreementForm({ partners, statuses, axes, projectId, initial, budgetCategories: _budgetCategories, budgetDetails, onSaved, onCancel }: AgreementFormProps) {
     const agreementStatuses = statuses.filter(s => s.context === 'financial_agreement')
-    const defaultStatusId   = agreementStatuses[0]?.id ?? 14
+    // Le repli était `?? 14`, l'identifiant d'« En préparation » dans la base
+    // héritée de Grist — juste nulle part ailleurs. Il se désigne désormais par
+    // son sens, et se résout dans le référentiel chargé.
+    const fallbackStatusId  = defaultStatusId(statuses, 'financial_agreement', 'todo') ?? 0
 
     const [title,         setTitle]         = useState(initial?.title          ?? '')
     const [description,   setDescription]   = useState(initial?.description    ?? '')
     const [partnerId,     setPartnerId]      = useState<number>(initial?.partner_id ?? partners[0]?.id ?? 0)
-    const [statusId,      setStatusId]       = useState<number>(initial?.status_id ?? defaultStatusId)
+    const [statusId,      setStatusId]       = useState<number>(initial?.status_id ?? fallbackStatusId)
     const [axisId,        setAxisId]         = useState<number | null>(initial?.axis_id ?? null)
     const [budget,        setBudget]         = useState(initial?.budget ? String(initial.budget) : '')
     const [grant,         setGrant]          = useState(initial?.grant  ? String(initial.grant)  : '')
@@ -1036,21 +1036,22 @@ function ProjectPartnerForm({ partners, initial, onSaved, onCancel }: ProjectPar
 
 // --- Milestone components ---
 
-const MILESTONE_STATUS_COLORS: Record<string, string> = {
-    'En cours':  '#dbeafe',
-    'Terminé':   '#dcfce7',
-    'Planifié':  '#f3f4f6',
-    'Annulé':    '#f3f4f6',
-    'A traiter': '#fee2e2',
-    'A faire':   '#fee2e2',
+// Les anciennes clés `'A traiter'` et `'A faire'` n'ont jamais rien coloré :
+// les libellés réels portaient un accent (« À traiter »). Une table indexée par
+// code n'a plus cette classe de bug — et le type la rend exhaustive.
+const MILESTONE_STATUS_COLORS: Record<LifecycleCode, string> = {
+    active:    '#dbeafe',
+    done:      '#dcfce7',
+    todo:      '#fee2e2',
+    on_hold:   '#fef9c3',
+    cancelled: '#f3f4f6',
 }
-const MILESTONE_STATUS_BORDER: Record<string, string> = {
-    'En cours':  '#93c5fd',
-    'Terminé':   '#86efac',
-    'Planifié':  '#d1d5db',
-    'Annulé':    '#d1d5db',
-    'A traiter': '#fca5a5',
-    'A faire':   '#fca5a5',
+const MILESTONE_STATUS_BORDER: Record<LifecycleCode, string> = {
+    active:    '#93c5fd',
+    done:      '#86efac',
+    todo:      '#fca5a5',
+    on_hold:   '#fde047',
+    cancelled: '#d1d5db',
 }
 
 type MilestoneRowProps = {
@@ -1062,10 +1063,10 @@ type MilestoneRowProps = {
 
 function MilestoneRow({ milestone: m, statuses, onEdit, onDelete }: MilestoneRowProps) {
     const status = statuses.find(s => s.id === m.status_id)
-    const isTermine = status?.label === 'Terminé'
-    const isAnnule = status?.label === 'Annulé'
-    const dotBg = MILESTONE_STATUS_COLORS[status?.label ?? ''] ?? '#f3f4f6'
-    const dotBorder = MILESTONE_STATUS_BORDER[status?.label ?? ''] ?? '#d1d5db'
+    const isTermine = status?.code === 'done'
+    const isAnnule = status?.code === 'cancelled'
+    const dotBg = paletteColor(MILESTONE_STATUS_COLORS, status?.code, '#f3f4f6')
+    const dotBorder = paletteColor(MILESTONE_STATUS_BORDER, status?.code, '#d1d5db')
     return (
         <div className="relative flex gap-3 group">
             <div className="flex flex-col items-center shrink-0">
@@ -1106,11 +1107,15 @@ type MilestoneFormProps = {
 }
 
 function MilestoneForm({ statuses, initial, onSaved, onCancel }: MilestoneFormProps) {
+    // Les jalons empruntent le contexte des cartes d'action, faute d'en avoir
+    // un à eux — `ProjectMilestone.status` pointe bien vers `common.Status`,
+    // mais aucun contexte `milestone` n'a jamais été créé. C'est sans
+    // conséquence tant que les deux partagent le même cycle de vie.
     const milestoneStatuses = statuses.filter(s => s.context === 'action_card')
     const [title,       setTitle]       = useState(initial?.title ?? '')
     const [description, setDescription] = useState(initial?.description ?? '')
     const [dueDate,     setDueDate]     = useState(initial?.due_date ?? '')
-    const [statusId,    setStatusId]    = useState<number>(initial?.status_id ?? milestoneStatuses[0]?.id ?? 0)
+    const [statusId,    setStatusId]    = useState<number>(initial?.status_id ?? defaultStatusId(statuses, 'action_card', 'todo') ?? 0)
     const [submitting,  setSubmitting]  = useState(false)
 
     async function handleSubmit() {
@@ -1845,7 +1850,7 @@ export function ProjectDetailSheet({ project, open, onClose, onUpdated, onDelete
                         <div className="flex items-center justify-between gap-3">
                             {pStatus ? (
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/70 text-gray-700">
-                                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: PROJECT_STATUS_COLORS[pStatus.label] ?? '#6b7280' }} />
+                                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: paletteColor(LIFECYCLE_COLORS, pStatus.code, '#6b7280') }} />
                                     {pStatus.label}
                                 </span>
                             ) : <span />}
@@ -2806,7 +2811,7 @@ export function ProjectDetailSheet({ project, open, onClose, onUpdated, onDelete
                                             </div>
                                             <span
                                                 className="shrink-0 text-xs px-1.5 py-0.5 rounded-full border border-border text-black"
-                                                style={{ backgroundColor: PROJECT_STATUS_COLORS[card.status.label] ?? '#f3f4f6' }}
+                                                style={{ backgroundColor: paletteColor(LIFECYCLE_COLORS, card.status.code, '#f3f4f6') }}
                                             >
                                                 {card.status.label}
                                             </span>
@@ -3280,7 +3285,7 @@ function toActionCardData(card: ActionCardFull): ActionCardData {
         description: card.description,
         start_date:  card.start_date,
         end_date:    card.end_date,
-        status:      { id: card.status.id, label: card.status.label, context: card.status.context },
+        status:      { id: card.status.id, code: card.status.code, label: card.status.label, context: card.status.context },
         category:    {
             id:     card.category.id,
             title:  card.category.title,
@@ -4128,7 +4133,7 @@ export default function Projects() {
                                                     console.log("Calls :", calls)
                                                     const pcProjects = filteredProjects.filter(p => p.project_call_id === pc.id)
                                                     const pcStatus = statuses.find(s => s.id === pc.status_id)
-                                                    const pcColor = pcStatus?.label === "Terminé" ? "#f3f4f6" : "#d1fae5"
+                                                    const pcColor = pcStatus?.code === "done" ? "#f3f4f6" : "#d1fae5"
                                                     const pcGrantTotal = pcProjects.reduce((sum, p) =>
                                                         sum + (agreementsByProject.get(p.id) ?? []).reduce((s, a) => s + (a.grant ?? 0), 0), 0
                                                     )
@@ -4202,7 +4207,7 @@ export default function Projects() {
                                                             {/* Cartes projets */}
                                                             <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
                                                                 {pcProjects.slice().sort((a, b) => {
-                                                                            const byStatus = STATUS_ORDER.indexOf(statuses.find(s => s.id === a.status_id)?.label ?? '') - STATUS_ORDER.indexOf(statuses.find(s => s.id === b.status_id)?.label ?? '')
+                                                                            const byStatus = LIFECYCLE_ORDER.indexOf(codeOf(statuses, a.status_id) as LifecycleCode) - LIFECYCLE_ORDER.indexOf(codeOf(statuses, b.status_id) as LifecycleCode)
                                                                             if (byStatus !== 0) return byStatus
 
                                                                             const byDate = (b.start_date ?? '').localeCompare(a.start_date ?? '')
@@ -4401,7 +4406,7 @@ export default function Projects() {
                                                 <TableCell>
                                                     {status && (
                                                         <Badge variant="secondary" className="text-xs rounded-full text-black whitespace-nowrap"
-                                                            style={{ backgroundColor: PROJECT_STATUS_COLORS[status.label] ?? '#f3f4f6' }}>
+                                                            style={{ backgroundColor: paletteColor(LIFECYCLE_COLORS, status.code, '#f3f4f6') }}>
                                                             {status.label}
                                                         </Badge>
                                                     )}
@@ -4503,7 +4508,7 @@ export default function Projects() {
                     })
                     .map(p => {
                         const status = statuses.find(s => s.id === p.status_id)
-                        const bg = PROJECT_STATUS_COLORS[status?.label ?? ''] ?? '#dbeafe'
+                        const bg = paletteColor(LIFECYCLE_COLORS, status?.code, '#dbeafe')
                         return {
                             id:       String(p.id),
                             name:     p.title,
@@ -4615,7 +4620,7 @@ export default function Projects() {
                                             <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>{fmt(task.start)} → {fmt(task.end)}</div>
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                                 {status && (
-                                                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: PROJECT_STATUS_COLORS[status.label] ?? '#f1f5f9', color: '#475569', fontWeight: 500 }}>{status.label}</span>
+                                                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: paletteColor(LIFECYCLE_COLORS, status.code, '#f1f5f9'), color: '#475569', fontWeight: 500 }}>{status.label}</span>
                                                 )}
                                                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: '#f1f5f9', color: '#475569' }}> {participantCount} participant{participantCount !== 1 ? 's' : ''}</span>
                                                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: '#f1f5f9', color: '#475569' }}> {partnerCount} partenaire{partnerCount !== 1 ? 's' : ''}</span>

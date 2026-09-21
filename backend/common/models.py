@@ -153,25 +153,48 @@ class ProgramModel(TenantModel):
             raise ValidationError(errors)
 
 
-class Status(TenantModel):
-    """Premier modèle multitenant, transverse aux apps.
+class Status(models.Model):
+    """Référentiel de workflow, commun à toute l'installation.
 
-    Il porte un `context` ('action_card' | 'project_call' | 'todo_item') et est
-    donc référencé depuis `actions` comme depuis `projects` : le placer dans
-    l'une des deux créerait une dépendance circulaire.
+    Transverse aux apps — référencé depuis `actions` comme depuis `projects`,
+    `directory` et `finance` — d'où sa place dans `common` : le mettre dans
+    l'une des applications créerait une dépendance circulaire.
+
+    **Délibérément non cloisonné.** Il l'a été (`TenantModel`) jusqu'à ce qu'on
+    constate que rien n'écrit dans cette table : aucun écran ne crée ni ne
+    renomme un statut, le workflow est imposé par l'application. La tenancy
+    dupliquait donc les mêmes lignes par laboratoire, avec des clés primaires
+    différentes à chaque fois — et le front, lui, comparait des identifiants en
+    dur (`status_id !== 3`), ce qui n'était vrai que pour l'organisation
+    héritée de Grist. C'est `code` qui sert désormais d'identité stable ; `id`
+    n'est plus qu'une clé technique.
+
+    Le couple (`context`, `code`) est unique. Le `label` varie d'un contexte à
+    l'autre pour le même code — une convention « Soldée » là où un projet est
+    « Terminé » — parce que c'est du vocabulaire d'affichage, pas de la
+    sémantique : le code, lui, ne bouge pas.
     """
+
+    # Cycle de vie partagé par tous les contextes sauf `participation`.
+    TODO = "todo"
+    ACTIVE = "active"
+    ON_HOLD = "on_hold"
+    DONE = "done"
+    CANCELLED = "cancelled"
 
     label = models.CharField(max_length=100)
     context = models.CharField(max_length=50)
+    code = models.CharField(max_length=32)
 
     class Meta:
         verbose_name_plural = "statuses"
+        ordering = ["context", "id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "label", "context"],
-                name="uniq_status_per_org",
+                fields=["context", "code"],
+                name="uniq_status_code_per_context",
             )
         ]
 
     def __str__(self) -> str:
-        return f"{self.label} ({self.context})"
+        return f"{self.label} ({self.context}.{self.code})"

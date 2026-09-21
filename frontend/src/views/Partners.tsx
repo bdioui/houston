@@ -6,6 +6,7 @@ import {
     addPartnerToLab, removePartnerFromLab,
     attachMemberToLab, detachMemberFromLab,
     getProjects, addMember, addProject, addProjectPartner, updateMember,
+    getStatuses,
 } from '@/lib/api'
 import { motion } from "framer-motion"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -26,7 +27,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuGroup, ContextMenuSeparator } from '@/components/ui/context-menu'
 import SearchInput from '@/components/SearchInput'
-import type { PartnerCardFull, Partner, Lab, LabCardFull, Member, Project } from '@/lib/types'
+import type { PartnerCardFull, Partner, Lab, LabCardFull, Member, Project, Status } from '@/lib/types'
+import { defaultStatusId } from '@/lib/status'
 import { ProjectViewerSheet } from '@/components/viewers'
 
 // --- Constantes ---
@@ -104,7 +106,12 @@ const PALETTE = [
 // =============================================================================
 
 type PartnerForm = { name: string; description: string; color: string; logo: string; type: string; status_id: number | null; consortium: boolean }
-const EMPTY_PARTNER_FORM: PartnerForm = { name: '', description: '', color: '#E7E8E2', logo: '', type: 'Université et grandes écoles', status_id: 1, consortium: false }
+// `status_id` à `null` et non `1` : cet identifiant désignait « En cours » dans
+// le contexte `action_card`, jamais un statut de partenaire. La colonne est
+// `null=True` côté Django, et aucun écran n'affiche encore le statut d'un
+// partenaire — le contexte `partner` du référentiel attend une vue qui s'en
+// serve.
+const EMPTY_PARTNER_FORM: PartnerForm = { name: '', description: '', color: '#E7E8E2', logo: '', type: 'Université et grandes écoles', status_id: null, consortium: false }
 
 type PartnerSheetProps =
     | { mode: 'create'; onCreated: (p: Partner) => void; onClose: () => void }
@@ -239,15 +246,19 @@ export function PartnerDetailSheet({ partner, open, onClose, onUpdated, onDelete
     const [showProjectCreate, setShowProjectCreate] = useState(false)
     const [qProjectTitle,  setQProjectTitle]  = useState('')
     const [qProjectBudget, setQProjectBudget] = useState('')
+    // Chargé pour la création rapide de projet : le statut posé était `1` en
+    // dur, qui désignait un statut de *carte d'action* et non de projet.
+    const [statuses, setStatuses] = useState<Status[]>([])
 
     useEffect(() => {
         if (!open) return
         setLocalPartner(partner)
         setShowMemberCreate(false)
         setShowProjectCreate(false)
-        Promise.all([getMembers(), getProjects()]).then(([members, projects]) => {
+        Promise.all([getMembers(), getProjects(), getStatuses()]).then(([members, projects, statuses]) => {
             setAllMembers(members as Member[])
             setAllProjects(projects as Project[])
+            setStatuses(statuses as Status[])
         })
     }, [open, partner.id])
 
@@ -321,7 +332,7 @@ export function PartnerDetailSheet({ partner, open, onClose, onUpdated, onDelete
             const newProject = await addProject({
                 title: qProjectTitle.trim(), description: '',
                 budget: Number(qProjectBudget) || 0,
-                project_call_id: 0, status_id: 1,
+                project_call_id: 0, status_id: defaultStatusId(statuses, 'project', 'todo') ?? 0,
                 start_date: '', end_date: '',
             })
             await addProjectPartner(newProject.id, partner.id, 'Partenaire', null, null)

@@ -97,6 +97,12 @@ class ProgramMember(TenantModel):
 
     Un membre en porte plusieurs : c'est ce qui rend le programme actif une
     sélection et non une déduction.
+
+    **Deux champs se ressemblent et ne disent pas la même chose.** `role` est un
+    intitulé libre — « Coordination », « Doctorant » — saisi pour être lu par
+    des humains, sans effet sur quoi que ce soit. `is_admin` est un droit, relu
+    à chaque requête. Les confondre reviendrait à ouvrir l'administration d'un
+    programme à qui s'y donne le bon titre.
     """
 
     member = models.ForeignKey(
@@ -106,6 +112,14 @@ class ProgramMember(TenantModel):
         Program, on_delete=models.CASCADE, related_name="member_links",
     )
     role = models.CharField(max_length=100, blank=True, default="")
+    # Qui décide de l'équipe de ce programme : y faire entrer ou sortir un
+    # compte, inviter vers lui, y nommer un autre administrateur.
+    #
+    # Porté par l'affectation elle-même et non par une table à part, parce que
+    # c'est déjà elle que le middleware lit pour résoudre le programme actif :
+    # le titre voyage avec l'accès et ne peut pas lui survivre. Retirer
+    # quelqu'un d'un programme lui en retire du même coup l'administration.
+    is_admin = models.BooleanField(default=False)
 
     class Meta:
         constraints = [

@@ -5,7 +5,8 @@ import {
     getBudgetCategories, getBudgetDetails, updateProgram,
 } from '@/lib/api'
 import { useCurrentProgram } from '@/lib/userContext'
-import { type Program, type Project, type Status, type Partner, type Member, type FinancialAgreement, type ProjectMember, type ActionCardFull, type Expanse, type BudgetCategory, type BudgetDetail } from '@/lib/types'
+import { type Program, type Project, type Status, type LifecycleCode, type Partner, type Member, type FinancialAgreement, type ProjectMember, type ActionCardFull, type Expanse, type BudgetCategory, type BudgetDetail } from '@/lib/types'
+import { isOpen, paletteColor } from '@/lib/status'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AlertTriangle, Users, Briefcase, Building2, TrendingUp, Clock, Receipt, Pencil, Check, X, NetworkIcon, InfoIcon } from 'lucide-react'
 import {ProjectViewerSheet, ActionCardViewerSheet} from '../components/viewers'
@@ -226,8 +227,10 @@ export default function Dashboard() {
     // ── Calculs ──
 
     const projectStatusMap = new Map(statuses.filter(s => s.context === 'project').map(s => [s.id, s]))
-    const activeStatuses   = ['En cours', 'En attente', 'Suspendu']
-    const activeProjects   = projects.filter(p => activeStatuses.includes(projectStatusMap.get(p.status_id ?? -1)?.label ?? ''))
+    // `isOpen` plutôt qu'une liste de libellés : celle-ci omettait « Annulé »,
+    // qui n'existait pas encore pour les projets, et l'aurait compté comme
+    // actif le jour où il est apparu.
+    const activeProjects   = projects.filter(p => isOpen(projectStatusMap.get(p.status_id ?? -1)?.code))
     const totalGrant           = agreements.reduce((s, a) => s + a.grant, 0)
     const totalBudget          = projects.reduce((s, p) => s + p.budget, 0)
     const totalExpanses        = expanses.reduce((s, e) => s + e.amount, 0)
@@ -307,8 +310,7 @@ export default function Dashboard() {
     const endingSoon = projects.filter((p): p is Project & { end_date: string } => {
         if (!p.end_date) return false
         const d = daysFromNow(p.end_date)
-        const label = projectStatusMap.get(p.status_id ?? -1)?.label ?? ''
-        return d >= 0 && d <= 60 && activeStatuses.includes(label)
+        return d >= 0 && d <= 60 && isOpen(projectStatusMap.get(p.status_id ?? -1)?.code)
     })
 
     console.log(endingSoon)
@@ -319,23 +321,20 @@ export default function Dashboard() {
     // Projets dont la date de fin est dépassée mais encore actifs
     const overdueProjects = projects.filter((p): p is Project & { end_date: string } => {
         if (!p.end_date) return false
-        const label = projectStatusMap.get(p.status_id ?? -1)?.label ?? ''
-        return daysFromNow(p.end_date) < 0 && activeStatuses.includes(label)
+        return daysFromNow(p.end_date) < 0 && isOpen(projectStatusMap.get(p.status_id ?? -1)?.code)
     })
-
-    const activeActionStatuses = ['En cours', 'Planifié', 'À traiter']
 
     // Actions se terminant dans < 14 jours
     const actionEndingSoon = actionCards.filter((ac): ac is ActionCardFull & { end_date: string } => {
         if (!ac.end_date) return false
         const d = daysFromNow(ac.end_date)
-        return d >= 0 && d <= 14 && activeActionStatuses.includes(ac.status.label)
+        return d >= 0 && d <= 14 && isOpen(ac.status.code)
     })
 
     // Actions dont la date de fin est dépassée mais encore actives
     const overdueActionCards = actionCards.filter((ac): ac is ActionCardFull & { end_date: string } => {
         if (!ac.end_date) return false
-        return daysFromNow(ac.end_date) < 0 && activeActionStatuses.includes(ac.status.label)
+        return daysFromNow(ac.end_date) < 0 && isOpen(ac.status.code)
     })
 
     // Conventions non signées
@@ -349,8 +348,7 @@ export default function Dashboard() {
     // Projets sans membres assignés
     const projectsWithoutMembers = projects
         .filter(p => {
-            const label = projectStatusMap.get(p.status_id ?? -1)?.label ?? ''
-            return activeStatuses.includes(label) && !projectMembers.some(pm => pm.project_id === p.id)
+            return isOpen(projectStatusMap.get(p.status_id ?? -1)?.code) && !projectMembers.some(pm => pm.project_id === p.id)
         })
         .map(p => `"${p.title}"`)
 
@@ -371,12 +369,12 @@ export default function Dashboard() {
     const progDaysLeft = program ? daysFromNow(program.end_date) : null
     const progYearsLeft = progDaysLeft !== null ? (progDaysLeft / 365).toFixed(1) : null
 
-    const STATUS_COLORS: Record<string, string> = {
-        'En cours':   '#d1fae5',
-        'Terminé':    '#f3f4f6',
-        'Suspendu':   '#fef9c3',
-        'En attente': '#dbeafe',
-        'Planifié':   '#fef9c3',
+    const STATUS_COLORS: Record<LifecycleCode, string> = {
+        active:    '#d1fae5',
+        done:      '#f3f4f6',
+        on_hold:   '#fef9c3',
+        todo:      '#dbeafe',
+        cancelled: '#fee2e2',
     }
 
     return (
@@ -843,7 +841,7 @@ export default function Dashboard() {
                     </p>
                     <div className="grid grid-cols-4 gap-2">
                         {staffWithProjects.map(({ member, assignments }) => {
-                            const activeCount = assignments.filter(a => activeStatuses.includes(projectStatusMap.get(a.project.status_id ?? -1)?.label ?? '')).length
+                            const activeCount = assignments.filter(a => isOpen(projectStatusMap.get(a.project.status_id ?? -1)?.code)).length
                             const roleBreakdown = ['Responsable', 'Co-responsable', 'Contributeur'].map(r => ({
                                 role: r,
                                 count: assignments.filter(a => a.role === r).length,
@@ -1033,7 +1031,8 @@ export default function Dashboard() {
                             <p className="text-sm text-muted-foreground italic">Aucun projet assigné.</p>
                         )}
                         {staffModal.assignments.map(({ project, role }) => {
-                            const statusLabel = projectStatusMap.get(project.status_id ?? -1)?.label ?? ''
+                            const status = projectStatusMap.get(project.status_id ?? -1)
+                            const statusLabel = status?.label ?? ''
                             return (
                                 <button
                                     key={project.id}
@@ -1042,7 +1041,7 @@ export default function Dashboard() {
                                 >
                                     <span
                                         className="mt-1 w-2 h-2 rounded-full shrink-0"
-                                        style={{ backgroundColor: STATUS_COLORS[statusLabel] ?? '#e5e7eb' }}
+                                        style={{ backgroundColor: paletteColor(STATUS_COLORS, status?.code, '#e5e7eb') }}
                                     />
                                     <div className="min-w-0 flex-1">
                                         <p className="text-sm font-medium break-words">{project.title}</p>

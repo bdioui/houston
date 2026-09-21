@@ -1,5 +1,9 @@
 from common.models import Status
-from common.serializers import BaseModelSerializer, TenantRelatedField
+from common.serializers import (
+    BaseModelSerializer,
+    ReferenceRelatedField,
+    TenantRelatedField,
+)
 from directory.models import Member
 from finance.models import FinancialAgreement
 from projects.models import Axis, Project
@@ -21,7 +25,7 @@ class CategorySerializer(BaseModelSerializer):
 class ActionCardSerializer(BaseModelSerializer):
     owner_id = TenantRelatedField(Member, source="owner")
     category_id = TenantRelatedField(Category, source="category")
-    status_id = TenantRelatedField(Status, source="status")
+    status_id = ReferenceRelatedField(Status, source="status")
 
     class Meta:
         model = ActionCard
@@ -60,13 +64,14 @@ class ToDoItemSerializer(BaseModelSerializer):
     list_id = TenantRelatedField(
         ToDoList, source="todo_list", required=True, allow_null=False
     )
-    status_id = TenantRelatedField(Status, source="status")
+    status_id = ReferenceRelatedField(Status, source="status")
+    member_id = TenantRelatedField(Member, source="member")
 
     class Meta:
         model = ToDoItem
         fields = [
             "id", "list_id", "content", "status_id", "start_date", "end_time",
-            "due_date",
+            "due_date", "member_id"
         ]
 
 
@@ -75,7 +80,7 @@ class MemberActionCardSerializer(BaseModelSerializer):
     action_card_id = TenantRelatedField(
         ActionCard, source="action_card", required=True, allow_null=False
     )
-    participation_status_id = TenantRelatedField(Status, source="participation_status")
+    participation_status_id = ReferenceRelatedField(Status, source="participation_status")
 
     class Meta:
         model = MemberActionCard

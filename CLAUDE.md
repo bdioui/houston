@@ -36,8 +36,8 @@ Il n'existe **ni fixture ni commande de seed**. Le plus court pour repartir de
 zéro est désormais `POST /api/auth/signup/`, qui crée d'un coup le laboratoire,
 le compte, sa fiche annuaire, un premier programme et les deux rattachements.
 Un second compte dans ce laboratoire se fait ensuite par invitation, depuis le
-menu de l'en-tête — c'est aussi le chemin pour rattacher un compte existant à un
-deuxième laboratoire. Restent les cas tordus, comme un compte sans fiche
+bouton « Partager » de l'en-tête — c'est aussi le chemin pour rattacher un compte
+existant à un deuxième laboratoire. Restent les cas tordus, comme un compte sans fiche
 annuaire : on passe par `manage.py shell`, et les modèles cloisonnés s'écrivent
 alors avec `.all_tenants.create(organization=…)` : hors requête HTTP, `objects`
 lève.
@@ -61,8 +61,8 @@ code de `common/`.
 Dans les deux cas **c'est une préférence, pas une autorisation** : le middleware
 revérifie le rattachement à chaque requête, sans quoi un retrait d'accès n'aurait
 d'effet qu'à la reconnexion. Et dans les deux cas, un compte qui n'a qu'un seul
-choix le voit auto-sélectionné — le sélecteur ne s'affiche qu'à partir de deux,
-ce qui fait qu'un compte ordinaire ne le voit jamais.
+choix le voit auto-sélectionné : la barre latérale le montre alors comme un
+rappel du contexte, pas comme une question posée.
 
 **L'ordre n'est pas interchangeable.** Le programme dépend de l'organisation,
 parce que l'affectation (`ProgramMember`) passe par une fiche annuaire et qu'une
@@ -140,15 +140,72 @@ posé les `ContextVar` avant d'entrer dans la vue. La réponse renvoie l'objet
 choisi pour que le front affiche le nouveau contexte sans second aller-retour.
 
 Côté front, `fetchMe()` rend
-`{ user, organization, member_id, org_role, program }`, les quatre derniers à
-`null` tant qu'il reste un choix à faire. `App.tsx` monte en
-conséquence `OrganizationPicker` puis `ProgramPicker`, dans cet ordre et de
-façon bloquante. Le programme actif est lu depuis `ProgramContext`
+`{ user, organization, member_id, is_owner, is_program_admin, program }`, les
+références à `null` tant qu'il reste un choix à faire. **Un seul des deux choix est encore
+bloquant** : sans laboratoire, `App.tsx` monte `OrganizationPicker`, parce que
+même la liste des programmes est alors inaccessible. Le programme, lui,
+s'auto-sélectionne sur le premier de l'arbre et `NoProgram` ne s'affiche que
+lorsqu'il n'y a rien à sélectionner — une dérive (invitation sans programme,
+affectation retirée), jamais un compte neuf. Faire trancher une fois, de façon
+bloquante, n'apportait rien depuis que **les deux bascules vivent dans la barre
+latérale** : le laboratoire en tête, les programmes dans leur groupe. Les
+doublons qui les rappelaient dans la barre du haut ont été retirés, et le menu
+du compte est descendu au pied de la barre. Le programme actif est lu depuis
+`ProgramContext`
 (`src/lib/userContext.ts`), **jamais via `getProgram()[0]`** : cette liste rend
 tous les programmes de l'utilisateur et son premier élément n'a aucune raison
 d'être l'actif. `AppShell` est remonté sur une `key` qui compose les deux
 identifiants (organisation et programme) à chaque bascule, pour qu'aucune donnée
 d'un contexte ne survive dans l'écran d'un autre.
+
+### Les trois titres
+
+Il n'y a **pas de rôle global**. Un compte est situé par deux booléens, un par
+axe de cloisonnement, et c'est tout :
+
+| | Propriétaire | Admin de programme | Membre |
+|---|---|---|---|
+| Créer un programme | ✓ | — | — |
+| Inviter dans le laboratoire | ✓ | ✓ *(vers son programme)* | — |
+| Retirer un compte du laboratoire | ✓ | — | — |
+| Nommer un admin de programme | ✓ | ✓ *(sur son programme)* | — |
+| Affecter une fiche **avec** compte | ✓ | ✓ *(sur son programme)* | — |
+| Affecter une fiche **sans** compte | ✓ | ✓ | ✓ |
+| Créer contacts/projets/actions/dépenses | ✓ | ✓ | ✓ |
+
+- **`OrganizationMember.is_owner`** — la *forme* du laboratoire : créer un
+  programme, retirer un compte, transmettre la propriété. Il vaut pour le
+  laboratoire actif : avoir fondé le sien ne donne aucun titre chez le voisin.
+- **`ProgramMember.is_admin`** — la *composition* d'un programme : y faire
+  entrer quelqu'un, l'en sortir, y nommer un autre administrateur. **À ne pas
+  confondre avec `ProgramMember.role`**, qui existait avant et reste du texte
+  libre — une étiquette humaine (« Coordination », « Doctorant »), pas un droit.
+
+Le middleware pose `request.is_owner` et `request.is_program_admin` ; les deux
+classes de `common/permissions.py` (`IsOrganizationOwner`, `IsProgramAdmin`) les
+lisent. Mais **`IsProgramAdmin` n'est qu'un premier filtre** : elle répond à « ce
+compte a-t-il quelque chose à faire ici ? », pas à « a-t-il le droit sur *ce*
+programme-ci ? ». Inviter ou affecter désigne un programme **dans la charge
+utile**, qui n'est pas forcément l'actif ; une permission ne voit que la requête.
+C'est `administers(request, program)` qui tranche, depuis le sérialiseur ou la
+vue.
+
+**Le propriétaire n'est jamais un cas particulier *dans* un programme.** Il y est
+administrateur pour la même raison que les autres : parce que l'affectation
+existe, écrite par `create_organization` et par la migration de reprise. Le code
+du cloisonnement garde ainsi sa règle unique — l'affectation est l'autorisation.
+
+**La ligne de partage de l'affectation est la fiche, pas le programme.** Affecter
+un contact sans compte ne donne d'accès à personne : c'est du classement, ouvert
+à toute l'équipe. Affecter une fiche *titulaire d'un compte* ouvre des données,
+et se réserve aux administrateurs du programme visé. D'où `Member.has_account`,
+que `MemberSerializer` calcule par `hasattr(member, "user_link")` — et le
+`select_related("user_link")` de `MemberViewSet`, sans quoi c'est une requête par
+ligne.
+
+**L'arrivée se délègue, l'exclusion non.** Un admin de programme invite vers son
+programme, mais seul le propriétaire retire un compte du laboratoire : une porte
+qu'on ouvre se referme, une porte qu'on condamne ne se rouvre pas.
 
 ### Les invitations
 
@@ -181,16 +238,25 @@ C'est **le seul endroit du projet où `all_tenants` sert une requête HTTP**, et
 ce n'est pas un contournement : on ne balaie pas une table cloisonnée, on suit
 un secret que seul le destinataire détient.
 
-**`OrganizationMember.role` vaut `admin` ou `member`**, et ne commande qu'une
-chose : le droit d'inviter (`IsOrganizationAdmin`, `common/permissions.py`, qui
-lit `request.org_role` posé par le middleware). Il vaut pour le laboratoire
-actif — on peut être administrateur de l'un et simple membre du suivant. Le
-front le reçoit dans `fetchMe()` pour afficher ou non l'entrée de menu ;
-l'autorisation, elle, est refaite à chaque requête. La migration `0004` promeut
-les fondateurs d'après le **plus petit `user_id` du laboratoire** et non d'après
-`created_at` : avant les invitations, seule l'inscription créait un laboratoire,
-alors que les `created_at` viennent tous du `bulk_create` de la migration
-précédente et sont dans un ordre arbitraire.
+**Une invitation ne porte qu'un titre de programme**, `is_program_admin`, jamais
+la propriété du laboratoire : on n'hérite pas d'un laboratoire en acceptant un
+lien, on la reçoit d'un geste explicite de celui qui l'a. `_attach` pose donc le
+`OrganizationMember` sans `is_owner` et reporte le booléen sur le
+`ProgramMember` qu'elle crée.
+
+Émettre est ouvert aux administrateurs de programme (`IsProgramAdmin`), mais
+`InvitationSerializer.validate_program_id` refuse un programme qu'on
+n'administre pas — et `perform_destroy` refait la vérification sur l'invitation
+visée, sinon révoquer serait plus facile qu'émettre. Attention au nom : DRF
+nomme les validateurs de champ d'après **le nom du champ, pas son `source`** —
+`validate_program_id`, jamais `validate_program`.
+
+La migration `0004` promeut les fondateurs d'après le **plus petit `user_id` du
+laboratoire** et non d'après `created_at` : avant les invitations, seule
+l'inscription créait un laboratoire, alors que les `created_at` viennent tous du
+`bulk_create` de la migration précédente et sont dans un ordre arbitraire. La
+reprise vers `is_owner` / `is_admin` suit le même fondateur, et lui écrit une
+affectation administratrice sur chaque programme de son laboratoire.
 
 **Aucun courriel n'est envoyé.** `token` et `accept_url` ne sont rendus **qu'à
 la création** ; la liste ne les redonne jamais, sans quoi le jeton deviendrait
@@ -213,9 +279,46 @@ libre (le mot de passe crée le compte). Elle pose ensuite `ORG_SESSION_KEY` et
 Côté front, `/invitation/<token>` est **la seule URL que l'application
 reconnaisse**, et elle n'introduit toujours pas de routeur : `App.tsx` lit
 `window.location.pathname` une fois au démarrage, avant les branches de session,
-et l'acceptation réécrit le chemin en `/`. L'émission vit dans
-`InvitationsModal`, ouverte depuis le menu de l'en-tête pour les seuls
-administrateurs.
+et l'acceptation réécrit le chemin en `/`. L'émission vit dans `ShareModal`,
+ouverte par le bouton « Partager » de la barre du haut, que voient le
+propriétaire et les administrateurs de programme.
+
+### L'écran de partage
+
+`ShareModal` montre **les deux axes à la fois**, parce qu'ils se lisent ensemble :
+qui travaille sur le programme affiché, et à quel titre dans le laboratoire. D'où
+le bouton dans la barre du haut, en vue, et non dans le menu du compte, où il se
+lisait comme un réglage personnel.
+
+Trois listes, et la troisième est l'invitation : les comptes affectés au
+programme actif, ceux du laboratoire qui n'y sont pas, puis les invitations en
+attente — celles du programme actif seulement (`getInvitations(program.id)`, que
+`TenantViewSet.filterset_class` sert sans code de filtre dédié). Le formulaire
+arrive avec le programme actif présélectionné.
+
+Les rattachements en place se gèrent par `/api/organization-members/`, qui n'a
+**pas de création** : on n'entre dans un laboratoire que par invitation. Son
+queryset se filtre à la main — `OrganizationMember` n'est pas un `TenantModel` et
+ne peut pas l'être, c'est la table que le middleware lit *avant* qu'un contexte
+existe. D'où le `raise TenantContextRequired` explicite : `filter(organization=None)`
+rendrait une liste vide au lieu d'une erreur.
+
+**Un propriétaire ne se modifie ni ne se retire lui-même** (`_refuse_self`, 400).
+Un seul garde-fou suffit à garantir qu'il reste toujours un propriétaire, sans
+avoir à compter les autres : seul un propriétaire peut agir. Transmettre se fait
+donc **en deux temps** — nommer l'autre, puis se faire retirer par lui. Côté
+front la même règle grise aussi le retrait de soi-même du programme actif, que le
+middleware ne saurait plus résoudre à la requête suivante.
+
+Chaque ligne porte donc **deux réglages, un par axe** : un `Select`
+Membre/Administrateur, qui n'apparaît que pour les comptes affectés au programme
+affiché, et la propriété du laboratoire — un écusson pour celui qui l'a, un
+bouton « Nommer propriétaire » pour les autres, actif seulement si l'on est
+soi-même propriétaire.
+
+Retirer l'accès ne retire que l'accès : la fiche annuaire survit
+(`OrganizationMember.member` est un `SET_NULL`) et ses affectations de programme
+avec.
 
 ## Architecture
 
@@ -346,11 +449,11 @@ total engagé perd alors son sens, seul le payé est fiable.
 
 ## Ce qui reste
 
-- Une vue de gestion d'organisation. Le rôle existe désormais
-  (`OrganizationMember.role`), mais il ne commande que le droit d'inviter : rien
-  n'administre encore les rattachements déjà en place, ni les affectations à un
-  programme. Retirer quelqu'un d'un laboratoire passe toujours par l'admin
-  Django, et promouvoir aussi.
+- Le laboratoire lui-même. L'écran de partage gère qui y accède, à quel titre et
+  sur quel programme, et le propriétaire y crée des programmes ; rien ne le
+  renomme ni ne le supprime — l'admin Django reste le seul chemin.
+- **Rien ne liste ses propres titres.** On découvre qu'on administre un
+  programme en voyant un bouton actif, jamais en le lisant quelque part.
 - **L'envoi des invitations par courriel.** Le lien se transporte à la main,
   c'est assumé tant qu'il n'y a pas de SMTP configuré — mais c'est un jeton en
   clair dans une messagerie, à savoir avant de mettre en production.

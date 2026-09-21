@@ -36,9 +36,17 @@ class TenantMiddleware:
     - `request.org_choices`, le nombre de laboratoires que ce compte pourrait
       choisir. Il ne sert qu'à `common.exceptions`, pour distinguer « rien à
       choisir » (403) de « rien de choisi » (409).
-    - `request.org_role`, le rôle du titulaire *dans l'organisation active*.
-      Comme la fiche, il change avec elle : administrer son laboratoire ne
-      donne aucun titre dans un autre. `None` tant qu'aucune n'est résolue.
+    - `request.is_owner`, si le titulaire a fondé le laboratoire *actif*. Comme
+      la fiche, il change avec lui : fonder le sien ne donne aucun titre chez
+      le voisin. `False` tant qu'aucun n'est résolu.
+    - `request.is_program_admin`, s'il administre le programme *actif*. Posé
+      ici parce que l'affectation est déjà lue pour résoudre le programme : le
+      titre voyage avec l'accès, il ne coûte pas une requête de plus.
+
+    Ces deux derniers ne sont qu'un premier filtre, à l'usage de
+    `common.permissions` et du front. Un geste qui *nomme* son programme —
+    inviter, affecter — se vérifie sur celui-là et non sur l'actif, par
+    `common.permissions.administers`.
     """
 
     def __init__(self, get_response):
@@ -50,7 +58,8 @@ class TenantMiddleware:
         # avoir à savoir jusqu'où le middleware est allé.
         request.member = None
         request.org_choices = 0
-        request.org_role = None
+        request.is_owner = False
+        request.is_program_admin = False
 
         if user is None or not user.is_authenticated:
             return self.get_response(request)
@@ -75,14 +84,18 @@ class TenantMiddleware:
 
         org = link.organization
         request.member = link.member
-        request.org_role = link.role
+        request.is_owner = link.is_owner
 
         org_token = set_current_org(org)
         try:
             # Après set_current_org, délibérément : la lecture des affectations
             # passe alors par un manager déjà cloisonné, et un identifiant de
             # programme volé à un autre laboratoire ne ressort pas de la requête.
-            program = self._resolve_program(request, link.member)
+            affectation = self._resolve_program(request, link.member)
+            program = affectation.program if affectation is not None else None
+            request.is_program_admin = (
+                affectation is not None and affectation.is_admin
+            )
             program_token = set_current_program(program)
             try:
                 # SET LOCAL n'a d'effet qu'à l'intérieur d'une transaction et se
@@ -131,11 +144,15 @@ class TenantMiddleware:
         return None
 
     def _resolve_program(self, request, member):
-        """Rend le programme actif, ou None s'il n'y a rien à poser.
+        """Rend l'*affectation* active, ou None s'il n'y a rien à poser.
 
-        Revérifié à chaque requête et non à la connexion : sans cela, retirer un
+        Revérifiée à chaque requête et non à la connexion : sans cela, retirer un
         membre d'un programme ne prendrait effet qu'à sa prochaine session, et
         une affectation supprimée continuerait d'ouvrir les données.
+
+        Rend l'affectation et non le programme, alors que seul le programme est
+        posé dans les ContextVar : c'est elle qui porte `is_admin`, et la jeter
+        ici obligerait à la relire juste après.
         """
         # Un compte sans fiche annuaire dans ce laboratoire — support, service —
         # n'y est affecté à rien : c'est ProgramMember qui porte l'affectation,
@@ -149,7 +166,7 @@ class TenantMiddleware:
         if chosen is not None:
             link = links.filter(program_id=chosen).select_related("program").first()
             if link is not None:
-                return link.program
+                return link
             # Affectation révoquée, programme supprimé, identifiant fabriqué, ou
             # simple changement de laboratoire : la clé désigne alors un
             # programme de celui qu'on vient de quitter.
@@ -163,4 +180,4 @@ class TenantMiddleware:
             return None
 
         request.session[PROGRAM_SESSION_KEY] = candidates[0].program_id
-        return candidates[0].program
+        return candidates[0]

@@ -34,8 +34,6 @@ export default function SignupScreen({
         first_name: '',
         last_name: '',
         organization_name: '',
-        program_name: '',
-        program_pfi: '',
     })
     const [errors, setErrors] = useState<string[]>([])
     const [pending, setPending] = useState(false)
@@ -96,33 +94,13 @@ export default function SignupScreen({
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="organization_name">Nom du laboratoire</Label>
+                            <Label htmlFor="organization_name">Nom de l'espace de travail</Label>
                             <Input
                                 id="organization_name"
                                 value={form.organization_name}
                                 onChange={set('organization_name')}
                                 required
                             />
-                        </div>
-                        <div className="grid grid-cols-3 gap-3">
-                            <div className="space-y-2 col-span-2">
-                                <Label htmlFor="program_name">Premier programme</Label>
-                                <Input
-                                    id="program_name"
-                                    value={form.program_name}
-                                    onChange={set('program_name')}
-                                    required
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="program_pfi">PFI</Label>
-                                <Input
-                                    id="program_pfi"
-                                    placeholder="facultatif"
-                                    value={form.program_pfi}
-                                    onChange={set('program_pfi')}
-                                />
-                            </div>
                         </div>
                         {errors.map(m => (
                             <p key={m} className="text-sm text-destructive">{m}</p>

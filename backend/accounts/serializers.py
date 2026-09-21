@@ -1,16 +1,18 @@
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.utils.text import slugify
 from rest_framework import serializers
 
+from common.permissions import administers
 from common.serializers import BaseModelSerializer, TenantRelatedField
 from common.tenant import get_current_org
 from directory.models import Member
-from projects.models import Program, ProgramMember
+from projects.models import Program
+
+from .services import create_organization
 
 from .models import Invitation, Organization, OrganizationMember, User
-
+from projects.serializers import ProgramSerializer
 
 class OrganizationSerializer(serializers.ModelSerializer):
     """Ce que le sélecteur a besoin de connaître d'un laboratoire, et rien de
@@ -20,14 +22,82 @@ class OrganizationSerializer(serializers.ModelSerializer):
         model = Organization
         fields = ["id", "name", "slug"]
 
+class OrganizationMemberSerializer(serializers.ModelSerializer):
+    """Un compte rattaché au laboratoire actif, vu par l'écran de partage.
 
-def _unique_slug(name: str) -> str:
-    base = slugify(name)[:40] or "laboratoire"
-    slug, n = base, 2
-    while Organization.objects.filter(slug=slug).exists():
-        slug = f"{base}-{n}"
-        n += 1
-    return slug
+    `role` est le seul champ modifiable, et c'est voulu : le rattachement ne
+    s'écrit pas, il se gagne par invitation. Changer `user` reviendrait à
+    donner la place de quelqu'un à un autre, changer `member` à lui donner sa
+    fiche annuaire.
+
+    L'identité est aplatie plutôt qu'imbriquée sous un objet `user` : l'écran
+    affiche une ligne par personne, pas un arbre. `member_id` est rendu à côté
+    parce que c'est la clé qui relie ce rattachement aux affectations de
+    programme — l'écran de partage a besoin des deux pour dire qui, parmi les
+    comptes du laboratoire, travaille sur le programme ouvert.
+
+    `ModelSerializer` nu et non `BaseModelSerializer` : `OrganizationMember`
+    n'est pas un `TenantModel`, il n'a ni `TenantRelatedField` à construire ni
+    contrainte d'unicité cloisonnée à traduire.
+    """
+
+    email = serializers.EmailField(source="user.email", read_only=True)
+    first_name = serializers.CharField(source="user.first_name", read_only=True)
+    last_name = serializers.CharField(source="user.last_name", read_only=True)
+
+    class Meta:
+        model = OrganizationMember
+        # `is_owner` est le seul champ inscriptible : c'est la transmission de
+        # la propriété. Tout le reste décrit une identité, qui ne se corrige pas
+        # depuis l'écran de partage.
+        fields = [
+            "id",
+            "email",
+            "first_name",
+            "last_name",
+            "member_id",
+            "is_owner",
+            "created_at",
+        ]
+        read_only_fields = ["member_id", "created_at"]
+
+
+class OrganizationTreeSerializer(OrganizationSerializer):
+    """Le laboratoire *et* les programmes que l'utilisateur y suit.
+
+    Réservé à la liste, parce que c'est elle qui alimente le menu de sélection :
+    sans les programmes, choisir un laboratoire puis un programme demanderait
+    deux écrans successifs et un aller-retour entre les deux.
+
+    `me()`, `select()` et `create()` gardent `OrganizationSerializer` — ils
+    décrivent un laboratoire déjà choisi, dont les programmes se demandent à
+    `/api/programs/`.
+
+    Le regroupement n'est pas calculé ici mais posé dans le contexte par la
+    vue : `get_programs` étant appelée une fois par laboratoire, l'interroger
+    ferait une requête par ligne. La vue en fait deux, une fois pour toutes.
+    """
+
+    programs = serializers.SerializerMethodField()
+
+    class Meta(OrganizationSerializer.Meta):
+        fields = OrganizationSerializer.Meta.fields + ["programs"]
+
+    def get_programs(self, org):
+        programs = self.context["programs_by_org"].get(org.id, [])
+        return ProgramSerializer(programs, many=True).data
+
+
+class OrganizationCreateSerializer(serializers.Serializer):
+    """Créer un espace de travail depuis une session ouverte.
+
+    Un seul champ, comme au signup : le programme qui naît avec le laboratoire
+    porte un nom par défaut, posé par `create_organization`. Le demander ici
+    reviendrait à faire expliquer les deux axes de cloisonnement à quelqu'un
+    qui veut juste un espace à lui.
+    """
+
+    organization_name = serializers.CharField(max_length=200)
 
 
 class SignupSerializer(serializers.Serializer):
@@ -37,11 +107,19 @@ class SignupSerializer(serializers.Serializer):
     modèle en particulier, elle en crée six d'un coup. Les champs sont ceux du
     formulaire, pas ceux d'une table.
 
-    Toute la chaîne s'exécute **hors contexte tenant** : TenantMiddleware sort
-    avant de rien poser quand la requête est anonyme. D'où deux conséquences
-    dans `create()` — les managers cloisonnés lèveraient, il faut passer par
-    `all_tenants` avec un `organization=` explicite ; et aucune transaction
-    n'est ouverte pour nous, il faut la prendre à la main.
+    Le compte est le seul des six à naître ici ; les cinq autres sont l'affaire
+    de `create_organization`, que la création d'espace en session ouverte
+    appelle aussi. L'inscription n'est plus qu'une de ses deux portes : celle
+    où il faut d'abord fabriquer le titulaire.
+
+    L'inversion d'ordre qui en découle — le compte avant le laboratoire, alors
+    que c'était l'inverse — est sans danger : `User` ne porte plus aucune clé
+    vers l'organisation depuis que `User.organization` a cédé la place à
+    `OrganizationMember`.
+
+    `transaction.atomic` reste ici en plus de celui de `create_organization` :
+    il couvre le compte *et* l'espace. Une moitié de chaîne laisserait un compte
+    connecté et sans laboratoire, exactement l'état qu'on cherche à éviter.
     """
 
     email = serializers.EmailField()
@@ -49,8 +127,6 @@ class SignupSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=150, allow_blank=True, default="")
     last_name = serializers.CharField(max_length=150, allow_blank=True, default="")
     organization_name = serializers.CharField(max_length=200)
-    program_name = serializers.CharField(max_length=200)
-    program_pfi = serializers.CharField(max_length=50, allow_blank=True, default="")
 
     def validate_email(self, value):
         email = User.objects.normalize_email(value)
@@ -85,53 +161,14 @@ class SignupSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        """L'ordre des six créations n'est pas libre : chacune attend la
-        précédente. Et le tout est atomique parce qu'une moitié de chaîne est
-        pire que rien — une organisation sans programme laisserait un compte
-        connecté et inutilisable, exactement l'état qu'on cherche à éviter.
-        """
-        org = Organization.objects.create(
-            name=validated_data["organization_name"],
-            slug=_unique_slug(validated_data["organization_name"]),
-        )
         user = User.objects.create_user(
-            email=validated_data["email"],
-            password=validated_data["password"],
-            first_name=validated_data["first_name"],
-            last_name=validated_data["last_name"],
-        )
-        member = Member.all_tenants.create(
-            organization=org,
-            first_name=validated_data["first_name"],
-            last_name=validated_data["last_name"],
-            email=user.email,
-            is_staff=True,
-        )
-        # Les deux maillons qu'il ne faut pas manquer. OrganizationMember
-        # rattache le compte au laboratoire *et* y désigne sa fiche : sans lui
-        # le compte naîtrait sans aucune appartenance, donc sans contexte, donc
-        # en 403 sur tout. Et c'est ProgramMember, plus bas, qui porte
-        # l'affectation — il pointe vers Member, jamais vers User.
-        # `admin` : le fondateur est le seul compte du laboratoire, quelqu'un
-        # doit pouvoir y inviter les suivants. C'est aussi le seul endroit du
-        # code où un rôle se pose sans qu'un administrateur l'ait décidé.
-        OrganizationMember.objects.create(
-            user=user, organization=org, member=member, role="admin",
-        )
-
-        program = Program.all_tenants.create(
-            organization=org,
-            name=validated_data["program_name"],
-            pfi=validated_data["program_pfi"],
-        )
-        ProgramMember.all_tenants.create(
-            organization=org,
-            member=member,
-            program=program,
-            role="Coordination",
-        )
+                email=validated_data["email"],
+                password=validated_data["password"],
+                first_name=validated_data["first_name"],
+                last_name=validated_data["last_name"],
+            )
+        create_organization(user=user, organization_name=validated_data["organization_name"])
         return user
-
 
 class InvitationSerializer(BaseModelSerializer):
     """L'invitation vue par le laboratoire qui l'émet.
@@ -163,8 +200,8 @@ class InvitationSerializer(BaseModelSerializer):
         model = Invitation
         fields = [
             "id", "email", "member_id", "program_id", "first_name", "last_name",
-            "role", "organization_name", "invited_by_email", "created_at",
-            "expires_at", "accepted_at", "is_expired",
+            "is_program_admin", "organization_name", "invited_by_email",
+            "created_at", "expires_at", "accepted_at", "is_expired",
         ]
         read_only_fields = ["created_at", "accepted_at"]
 
@@ -188,6 +225,25 @@ class InvitationSerializer(BaseModelSerializer):
         if value is not None and hasattr(value, "user_link"):
             raise serializers.ValidationError(
                 "Cette fiche est déjà rattachée à un compte."
+            )
+        return value
+
+    def validate_program_id(self, value):
+        """On n'invite que vers un programme qu'on administre.
+
+        C'est ici que se fait la vraie vérification, et non dans
+        `IsProgramAdmin` : la permission ne voit que le programme *actif*, alors
+        que l'invitation nomme le sien. Administrer A n'autorise pas à peupler
+        B, même en gardant A ouvert.
+
+        Le propriétaire passe partout, `administers` s'en charge.
+
+        Même piège nom/source que `validate_member_id` : `validate_program_id`,
+        jamais `validate_program`.
+        """
+        if not administers(self.context["request"], value):
+            raise serializers.ValidationError(
+                "Vous n'administrez pas ce programme."
             )
         return value
 

@@ -46,12 +46,13 @@ class BaseModelSerializer(serializers.ModelSerializer):
         return validators
 
 
-class TenantRelatedField(serializers.PrimaryKeyRelatedField):
-    """Référence vers un modèle tenant, exposée sous le nom `<champ>_id`.
+class LazyRelatedField(serializers.PrimaryKeyRelatedField):
+    """Référence exposée sous le nom `<champ>_id`, au queryset résolu à l'usage.
 
-    Le queryset est résolu à l'usage et non à la déclaration : écrire
-    `queryset=Model.objects.all()` dans un corps de classe évaluerait le
-    TenantManager à l'import, hors contexte tenant, et lèverait au démarrage.
+    Écrire `queryset=Model.objects.all()` dans un corps de classe évaluerait le
+    manager à l'import : pour un modèle tenant, hors contexte, cela lèverait au
+    démarrage. La résolution tardive est donc la raison d'être de la classe ;
+    les deux sous-classes ne diffèrent que par ce qu'elles documentent.
     """
 
     def __init__(self, model, **kwargs):
@@ -64,7 +65,30 @@ class TenantRelatedField(serializers.PrimaryKeyRelatedField):
         return self.model.objects.all()
 
 
+class TenantRelatedField(LazyRelatedField):
+    """Référence vers un modèle cloisonné.
+
+    Le queryset est le TenantManager : un identifiant appartenant à un autre
+    laboratoire n'y figure pas, et la validation DRF le rejette en 400 sans
+    qu'aucune vue n'ait à le vérifier.
+    """
+
+
+class ReferenceRelatedField(LazyRelatedField):
+    """Référence vers un référentiel commun à toute l'installation.
+
+    Distincte de `TenantRelatedField` alors que le code est le même, parce que
+    le nom porte une garantie : ici le queryset n'est *pas* cloisonné, et c'est
+    voulu. Utiliser l'autre classe laisserait croire à une vérification qui
+    n'a pas lieu.
+    """
+
+
 class StatusSerializer(BaseModelSerializer):
     class Meta:
         model = Status
-        fields = ["id", "label", "context"]
+        # `code` est l'identité stable, la seule sur laquelle le front ait le
+        # droit de brancher une décision. `id` reste exposé parce que les
+        # `status_id` des autres ressources le désignent, et `label` n'est que
+        # du vocabulaire d'affichage.
+        fields = ["id", "code", "label", "context"]

@@ -103,12 +103,19 @@ class ProgramScopedViewSet(TenantViewSet):
         return {**super().get_create_kwargs(), "program": get_current_program()}
 
 
-class StatusViewSet(TenantViewSet):
+class StatusViewSet(viewsets.ReadOnlyModelViewSet):
     """`Status` vit dans `common` parce qu'il est référencé depuis `actions`
     comme depuis `projects` et `finance` ; sa route suit le modèle.
+
+    En lecture seule, et non cloisonnée : c'est un référentiel d'installation,
+    posé par migration. Elle héritait de `TenantViewSet` du temps où `Status`
+    était un `TenantModel` — mais aucun écran n'a jamais appelé ses verbes
+    d'écriture, et la tenancy ne dupliquait que les mêmes lignes.
+
+    Reste `IsAuthenticated` par défaut : le référentiel ne fuite rien, mais
+    l'ouvrir à l'anonyme n'apporterait rien non plus.
     """
 
     serializer_class = StatusSerializer
-
-    def get_queryset(self):
-        return Status.objects.all()
+    queryset = Status.objects.all()
+    filterset_fields = ["context", "code"]

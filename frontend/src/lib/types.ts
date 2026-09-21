@@ -8,10 +8,32 @@ export type User = {
     picture?: string
 }
 
+/** Cycle de vie partagé par tous les contextes sauf `participation`. */
+export type LifecycleCode = 'todo' | 'active' | 'on_hold' | 'done' | 'cancelled'
+
+/** État de présence — ce n'est pas un cycle de vie, d'où des codes à part. */
+export type ParticipationCode = 'registered' | 'confirmed' | 'present' | 'absent' | 'excused'
+
+export type StatusCode = LifecycleCode | ParticipationCode
+
+export type StatusContext =
+    | 'action_card'
+    | 'project'
+    | 'project_call'
+    | 'financial_agreement'
+    | 'todo_item'
+    | 'partner'
+    | 'participation'
+
 export type Status = {
     id: number
-    label: string   // 'En cours' | 'Terminé' | 'Annulé' | 'Planifié'
-    context: string // 'action_card' | 'project_call' | 'todo_item'
+    /** Identité stable, la seule sur laquelle brancher une décision.
+     *  `id` est attribué par la base et diffère d'une installation à l'autre. */
+    code: StatusCode
+    /** Vocabulaire d'affichage, propre au contexte : une convention est
+     *  « Soldée » là où un projet est « Terminé », pour le même code `done`. */
+    label: string
+    context: StatusContext
 }
 
 export type Category = {
@@ -73,7 +95,19 @@ export type Member = {
     status: string // 'Prof' | 'Enseignant-chercheur' | 'BIATSS' | ...
     profile_image: string
     is_staff: boolean
+    // La fiche a-t-elle un compte derrière elle ? Toute la différence entre un
+    // contact — saisi pour s'en souvenir, et que n'importe quel membre peut
+    // affecter à son programme — et quelqu'un à qui l'affectation ouvre une
+    // porte, ce qui est réservé aux administrateurs du programme.
+    //
+    // Rendu par le serveur, jamais écrit : un compte ne se crée pas depuis
+    // l'annuaire, seulement par invitation.
+    has_account: boolean
 }
+
+// Ce qu'un formulaire peut écrire d'une fiche. `id` et `has_account` en sont
+// exclus pour la même raison : ils viennent du serveur.
+export type MemberDraft = Omit<Member, 'id' | 'has_account'>
 
 export type GroupMember = {
     id: number
@@ -311,6 +345,7 @@ export type ToDoItem = {
     start_date?: string | null
     end_time?: string | null
     due_date: string | null
+    member_id: number | null
 }
 
 // --- Types enrichis (jointures côté front) ---
@@ -375,10 +410,28 @@ export type Organization = {
     slug: string
 }
 
-// Le rôle dans le laboratoire *actif*, et il n'en existe que deux. Il ne
-// commande qu'une chose : le droit d'inviter. Tout le reste dépend du
-// cloisonnement, pas d'un grade.
-export type OrgRole = 'admin' | 'member'
+export type OrganizationTree = Organization & { programs: Program[] }
+
+// Un compte déjà rattaché au laboratoire — l'autre moitié de l'écran de
+// partage, quand `Invitation` en couvre les places encore à prendre.
+//
+// `member_id` est nul pour un compte de support : il accède au laboratoire sans
+// figurer à son annuaire. C'est aussi ce qui l'empêche d'être affecté à un
+// programme, l'affectation passant par la fiche.
+//
+// `is_owner` a remplacé un `role` à deux valeurs, et ce n'est pas qu'un
+// renommage : le titre ne porte plus que sur la *forme* de l'espace de travail
+// — créer un programme, retirer un compte, transmettre la propriété. Ce qui se
+// passe dans un programme est porté par `ProgramMember.is_admin`.
+export type OrgMember = {
+    id: number
+    email: string
+    first_name: string
+    last_name: string
+    member_id: number | null
+    is_owner: boolean
+    created_at: string
+}
 
 // Une place réservée dans un laboratoire. Côté émetteur : ce que l'on voit dans
 // la liste des invitations en attente.
@@ -394,7 +447,9 @@ export type Invitation = {
     program_id: number | null
     first_name: string
     last_name: string
-    role: OrgRole
+    // Le titre accordé *dans le programme visé*, et rien au-delà : une
+    // invitation ne fabrique jamais un propriétaire.
+    is_program_admin: boolean
     organization_name: string
     invited_by_email: string | null
     created_at: string
@@ -430,6 +485,24 @@ export type Program = {
     end_date: string | null
     logo: string
     management_fee_rate: number | null
+}
+
+// L'affectation d'une fiche annuaire à un programme. Elle décide de deux
+// choses : à quels programmes un compte a droit, et qui figure dans l'équipe
+// qu'affiche l'écran Contacts. `role` est porté par la liaison et non par la
+// fiche — la même personne peut coordonner ici et contribuer là.
+//
+// `role` et `is_admin` se ressemblent et ne disent pas la même chose : `role`
+// est un intitulé libre saisi pour être lu — « Coordination », « Doctorant » —
+// sans effet sur quoi que ce soit ; `is_admin` est un droit, revérifié par le
+// serveur à chaque requête. Les confondre ouvrirait l'administration d'un
+// programme à qui s'y donne le bon titre.
+export type ProgramMember = {
+    id: number
+    member_id: number
+    program_id: number
+    role: string
+    is_admin: boolean
 }
 
 // Budget & expanses

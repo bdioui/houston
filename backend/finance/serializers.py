@@ -1,5 +1,9 @@
 from common.models import Status
-from common.serializers import BaseModelSerializer, TenantRelatedField
+from common.serializers import (
+    BaseModelSerializer,
+    ReferenceRelatedField,
+    TenantRelatedField,
+)
 from directory.models import Member, Partner
 from projects.models import Axis, Project
 
@@ -48,7 +52,7 @@ class FinancialAgreementSerializer(BaseModelSerializer):
     project_id = TenantRelatedField(Project, source="project", required=True, allow_null=True)
     partner_id = TenantRelatedField(Partner, source="partner", required=True, allow_null=False)
     axis_id = TenantRelatedField(Axis, source="axis")
-    status_id = TenantRelatedField(Status, source="status")
+    status_id = ReferenceRelatedField(Status, source="status")
     budget_detail_id = TenantRelatedField(BudgetDetail, source="budget_detail")
 
     class Meta:
