@@ -5,12 +5,11 @@ import Members from './views/Members'
 import Projects from './views/Projects'
 import Actions from './views/Actions'
 import Finance from './views/Finance'
-import { motion } from "framer-motion"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import {ActionCardViewerSheet, ProjectViewerSheet} from './components/viewers'
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ChevronsUpDown, Download, RefreshCw, LogOut, Bell, Check, ChevronDown, Building2, UserPlus, Plus } from 'lucide-react'
+import { ChevronsUpDown, Download, RefreshCw, LogOut, Bell, Check, ChevronDown, Building2, UserPlus, Plus, LayoutDashboard, ListTodo, Briefcase, Users, Receipt } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { type MemberFull, type Project, type ProjectMember, type ActionCardFull, type Comment, type FinancialAgreement, type ProjectMilestone, type Expanse, type MemberActionCard, type Organization, type Program, type Status,type OrganizationTree } from '@/lib/types'
 import { getMembersFull, getProjects, getActionCardsFull, getAllProjectMembers, getAllMemberActionCards, getComments, getFinancialAgreements, getAllProjectMilestones, getExpanses, getOrganizations, selectOrganization, selectProgram, getStatuses, createOrganization, createProgram } from '@/lib/api'
@@ -26,7 +25,9 @@ import SignupScreen from '@/components/SignupScreen'
 import InvitationScreen from '@/components/InvitationScreen'
 import { fetchMe, logout as apiLogout, type Session } from '@/lib/auth'
 import { ApiError } from '@/lib/client'
-import {Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarFooter, SidebarInset, SidebarProvider, SidebarTrigger, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSkeleton, SidebarGroupLabel, SidebarGroupContent, SidebarGroupAction} from '@/components/ui/sidebar'
+import {Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarFooter, SidebarInset, SidebarProvider, SidebarTrigger, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSkeleton, SidebarGroupLabel, SidebarGroupContent, SidebarGroupAction, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton} from '@/components/ui/sidebar'
+import type { LucideIcon } from 'lucide-react'
+
 
 type AlertItem = {
   type: string,
@@ -34,6 +35,12 @@ type AlertItem = {
   seen: boolean,
   daysLeft: number,
   id: number,
+}
+
+type VIEW = {
+  name : string,
+  label : string,
+  icon?: LucideIcon
 }
 
 // La seule URL que l'application reconnaisse, et elle n'introduit pas de
@@ -58,6 +65,17 @@ export default function App() {
   const [orgs, setOrgs] = useState<OrganizationTree[] | null>(null)
   const [programError, setProgramError] = useState<string | null>(null)
   const reloadOrgs = () => getOrganizations().then(setOrgs).catch(() => setOrgs([]))
+  const [currentView, setCurrentView] = useState('dashboard')
+
+  
+  const VIEWS: VIEW[] = [
+  { name: "dashboard", label: "Dashboard",   icon: LayoutDashboard },
+  { name: "actions",   label: "Actions",     icon: ListTodo },
+  { name: "projects",  label: "Projets",     icon: Briefcase },
+  { name: "partners",  label: "Partenaires", icon: Building2 },
+  { name: "members",   label: "Membres",     icon: Users },
+  { name: "finance",   label: "Finance",     icon: Receipt },
+]
 
   useEffect(() => {
     fetchMe()
@@ -164,6 +182,8 @@ export default function App() {
             // Remonte tout à chaque bascule, sur les deux axes. Les données
             // déjà chargées appartiennent au contexte qu'on quitte ; les garder
             // afficherait les projets de l'un sous le budget de l'autre.
+            currentView={currentView}
+            setCurrentView={setCurrentView}
             key={`${session.organization.id}:${session.program.id}`}
             memberId={session.member_id}
             organization={session.organization}
@@ -176,6 +196,7 @@ export default function App() {
             onCreateProgram={createProg}
             onLogout={onLogout}
             orgs={orgs}
+            VIEWS={VIEWS}
           />
 }
 
@@ -275,9 +296,8 @@ function NoProgram({ error, onLogout }: { error: string | null; onLogout: () => 
 // la fiche annuaire du titulaire et efface le programme côté serveur, donc seul
 // un `fetchMe()` sait dire ce que devient le contexte.
 
-function AppShell({memberId, orgs, organization, program, isOwner, isProgramAdmin, onSelectProgram, onSelectOrganization, onCreateOrganization, onCreateProgram, onLogout}: {memberId: number | null; orgs: OrganizationTree[] | null; organization: Organization; program: Program; isOwner: boolean; isProgramAdmin: boolean; onSelectProgram: (p: Program) => void; onSelectOrganization: (id: number) => Promise<void>; onCreateOrganization: (name: string) => Promise<void>; onCreateProgram: (draft: ProgramDraft) => Promise<void>; onLogout: () => void;}) {
+function AppShell({currentView, setCurrentView, memberId, orgs, organization, program, isOwner, isProgramAdmin, onSelectProgram, onSelectOrganization, onCreateOrganization, onCreateProgram, onLogout, VIEWS}: {currentView: string, setCurrentView:(vue : string) => void, memberId: number | null; orgs: OrganizationTree[] | null; organization: Organization; program: Program; isOwner: boolean; isProgramAdmin: boolean; onSelectProgram: (p: Program) => void; onSelectOrganization: (id: number) => Promise<void>; onCreateOrganization: (name: string) => Promise<void>; onCreateProgram: (draft: ProgramDraft) => Promise<void>; onLogout: () => void; VIEWS: VIEW[]}) {
 
-  const [currentView, setCurrentView] = useState('dashboard')
   const [currentMember, setCurrentMember] = useState<MemberFull | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([])
@@ -491,32 +511,61 @@ function AppShell({memberId, orgs, organization, program, isOwner, isProgramAdmi
                   <SidebarMenuItem key={p.id}>
                     {/* `selectProgram` avant `onSelectProgram` : le second n'est
                         qu'un setSession local, il ne dit rien au serveur. */}
-                    <SidebarMenuButton
-                      isActive={p.id === program.id}
-                      tooltip={p.name}
-                      onClick={() => { if (p.id !== program.id) selectProgram(p.id).then(onSelectProgram) }}
-                    >
-                      <span className="flex size-4 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold">
-                        {p.name[0]}
-                      </span>
-                      <span className="truncate">{p.name}</span>
-                    </SidebarMenuButton>
+                        <SidebarMenuButton
+                          isActive={p.id === program.id}
+                          tooltip={p.name}
+                          onClick={() => {
+                            if (p.id !== program.id) {
+                              selectProgram(p.id).then(newProgram => {
+                                onSelectProgram(newProgram)   
+                                setCurrentView("dashboard")
+                              })
+                            }
+                          }}
+                                                >
+                          <span className="flex size-4 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold">
+                            {p.name[0]}
+                          </span>
+                          <span className="truncate">{p.name}</span>
+                        </SidebarMenuButton>
+
+                      
+                      <SidebarMenuSub>
+                      {VIEWS.map(v => {
+                          const Icon = v.icon
+                          return (
+                          
+                          <SidebarMenuSubItem key={v.name}>
+                            <SidebarMenuSubButton
+                              isActive={p.id === program.id && currentView === v.name}
+                             onClick={() => {
+                                      if (p.id !== program.id) {
+                                        selectProgram(p.id).then(newProgram => {
+                                          onSelectProgram(newProgram)
+                                          setCurrentView(v.name)
+                                        })
+                                      } else {
+                                        setCurrentView(v.name)
+                                      }
+                                    }}
+                            >
+                              {Icon && <Icon size={14} />}
+                              <span className="truncate">{v.label}</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        )}
+                      )}
+                      </SidebarMenuSub>
+
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
+
+
             </SidebarGroupContent>
           </SidebarGroup>
-          <SidebarGroup>
-            <SidebarGroupLabel>Plateforme</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>Test</SidebarMenuItem>
-                <SidebarMenuItem>Test</SidebarMenuItem>
-                <SidebarMenuItem>Test</SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-          
+
+
         </SidebarContent>
       
         <SidebarFooter>
@@ -570,11 +619,14 @@ function AppShell({memberId, orgs, organization, program, isOwner, isProgramAdmi
         </SidebarFooter>
 
     </Sidebar>
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
     <div className="h-screen flex flex-col overflow-hidden bg-gray-50">
       <nav className="flex justify-between align-center p-4 gap-4 shrink-0">
-        <div className='flex gap-2 items-center'>
-          <SidebarTrigger />
+          <div className='flex'>
+            <SidebarTrigger />
+          </div>
+
+          <div className='flex gap-2 items-center'>
 
           {/* Boutons alertes */}
           {currentMember ? (
@@ -676,10 +728,12 @@ function AppShell({memberId, orgs, organization, program, isOwner, isProgramAdmi
               <UserPlus size={16} /> Partager
             </Button>
           )}
-
+        
         </div>
 
-        <div className="bg-gray-200 rounded-full border p-1 flex relative">
+        
+
+        {/* <div className="bg-gray-200 rounded-full border p-1 flex relative">
           {['dashboard', 'actions', 'projets', 'partenaires', 'contacts', 'finance'].map((view) => (
             <button
               key={view}
@@ -698,15 +752,15 @@ function AppShell({memberId, orgs, organization, program, isOwner, isProgramAdmi
               )}
             </button>
           ))}
-        </div>
+        </div> */}
       </nav>
 
       <main className="flex-1 min-h-0 overflow-y-auto">
         {currentView === "dashboard" && <Dashboard key={refreshKey} />}
         {currentView === "actions" && <Actions key={refreshKey} />}
-        {currentView === "projets" && <Projects key={refreshKey} />}
-        {currentView === "partenaires" && <Partners key={refreshKey} />}
-        {currentView === "contacts" && <Members key={refreshKey} />}
+        {currentView === "projects" && <Projects key={refreshKey} />}
+        {currentView === "partners" && <Partners key={refreshKey} />}
+        {currentView === "members" && <Members key={refreshKey} />}
         {currentView === "finance" && <Finance key={refreshKey} />}
       </main>
 

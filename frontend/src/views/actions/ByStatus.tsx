@@ -168,7 +168,7 @@ function MemberFilter({ allMembers, allPartners, selectedIds, onChangeIds }: Mem
 
 // --- Composant principal ---
 
-export default function Tasks() {
+export default function ByStatus() {
     const currentUser = useCurrentUser()
     const [cards, setCards]       = useState<ActionCardData[]>([])
     const [loading, setLoading]   = useState(true)
@@ -332,7 +332,7 @@ export default function Tasks() {
     return (
         <>
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
-        <div className="mt-4 flex flex-col gap-4 flex-1 min-h-0">
+        <div className="mt-4 flex flex-col gap-4 mr-3 flex-1 min-h-0">
 
             {/* Barre d'actions */}
             <div className="flex items-center gap-2 flex-wrap">

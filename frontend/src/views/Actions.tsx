@@ -1,16 +1,18 @@
 import React, { useState } from 'react'
 import { motion } from "framer-motion"
-import { Tag, CheckSquare, CalendarDays } from 'lucide-react'
+import { Tag, CheckSquare, CalendarDays, ListTodo } from 'lucide-react'
 import Calendar from './actions/Calendar'
 import Categories from './actions/Categories'
-import Tasks from './actions/Tasks'
+import ByStatus from './actions/ByStatus'
+import MyTasks from './actions/MyTasks'
 
-type ViewMode = 'Categories' | 'Tâches' | 'Calendrier'
+type ViewMode = 'Categories' | 'ByStatus' | 'Calendrier' | 'MyTasks'
 
 const MODES: { mode: ViewMode; label: string; icon: React.ReactNode }[] = [
-    { mode: 'Categories', label: 'Catégories',  icon: <Tag size={13} /> },
-    { mode: 'Tâches',     label: 'Tâches',      icon: <CheckSquare size={13} /> },
+    { mode: 'Categories', label: 'Par catégorie',  icon: <Tag size={13} /> },
+    { mode: 'ByStatus',     label: 'Par statut',      icon: <CheckSquare size={13} /> },
     { mode: 'Calendrier', label: 'Calendrier',  icon: <CalendarDays size={13} /> },
+    { mode: 'MyTasks', label: 'Mes tâches',  icon: <ListTodo size={13} /> },
 ]
 
 export default function Actions() {
@@ -43,8 +45,10 @@ export default function Actions() {
 
             <div className="flex-1 min-h-0 ml-[30px] flex flex-col overflow-auto">
                 {viewMode === 'Categories'  && <Categories />}
-                {viewMode === 'Tâches'      && <Tasks />}
+                {viewMode === 'ByStatus'      && <ByStatus />}
                 {viewMode === 'Calendrier'  && <Calendar />}
+                {viewMode === 'MyTasks'  && <MyTasks />}
+
             </div>
         </div>
     )

@@ -502,7 +502,7 @@ export default function Categories() {
             {/* Barre d'actions */}
             <div className="flex items-center gap-2 flex-wrap">
 
-                {/* Filtre catégories */}
+                {/* Filtre catégories */} 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" size="sm" className="gap-2 rounded-md">
